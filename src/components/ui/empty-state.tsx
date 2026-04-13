@@ -36,8 +36,8 @@ export function EmptyState({
         {description}
       </p>
       {action && (
-        <Button variant="gradient" size="sm" render={<Link href={action.href} />}>
-          {action.label}
+        <Button variant="gradient" size="sm">
+          <Link href={action.href}>{action.label}</Link>
         </Button>
       )}
     </div>

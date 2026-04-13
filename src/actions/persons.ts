@@ -19,11 +19,15 @@ async function checkRole(allowedRoles: string[]): Promise<ActionResult> {
   if (!user) return { success: false, error: 'No autenticado' }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data: profile } = await (supabase as any)
+  const { data: profile, error: profileError } = await supabase
     .from('profiles')
     .select('role')
     .eq('id', user.id)
-    .single()
+    .single() as any
+
+  if (profileError) {
+    return { success: false, error: `Error de perfil: ${profileError.message}` }
+  }
 
   if (!profile || !allowedRoles.includes(profile.role)) {
     return { success: false, error: 'No tienes permisos para realizar esta acción' }
@@ -32,16 +36,10 @@ async function checkRole(allowedRoles: string[]): Promise<ActionResult> {
   return { success: true }
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function getDb(supabase: Awaited<ReturnType<typeof createClient>>) {
-  return supabase as any
-}
-
 export async function createPerson(
   input: CreatePersonInput
 ): Promise<ActionResult<PersonRecord>> {
   const supabase = await createClient()
-  const db = getDb(supabase)
 
   const roleCheck = await checkRole(['admin', 'hr_operator'])
   if (!roleCheck.success) return roleCheck as ActionResult<PersonRecord>
@@ -50,7 +48,8 @@ export async function createPerson(
     return { success: false, error: 'El nombre es requerido' }
   }
 
-  const { data, error } = await db
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data, error } = await supabase
     .from('persons')
     .insert({
       name: input.name.trim(),
@@ -60,8 +59,7 @@ export async function createPerson(
       face_photo_url: input.face_photo_url || null,
       status: 'pending_sync',
     })
-    .select()
-    .single()
+    .select() as any
 
   if (error) {
     if (error.code === '23505') {
@@ -70,7 +68,7 @@ export async function createPerson(
     return { success: false, error: error.message }
   }
 
-  return { success: true, data: data as PersonRecord }
+  return { success: true, data: (data as PersonRecord[])?.[0] ?? null }
 }
 
 export async function updatePerson(
@@ -78,7 +76,6 @@ export async function updatePerson(
   input: UpdatePersonInput
 ): Promise<ActionResult<PersonRecord>> {
   const supabase = await createClient()
-  const db = getDb(supabase)
 
   const roleCheck = await checkRole(['admin', 'hr_operator'])
   if (!roleCheck.success) return roleCheck as ActionResult<PersonRecord>
@@ -87,18 +84,20 @@ export async function updatePerson(
     return { success: false, error: 'ID de persona requerido' }
   }
 
-  const { data: existing } = await db
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: existing, error: fetchError } = await supabase
     .from('persons')
     .select('*')
     .eq('id', id)
-    .single()
+    .single() as any
 
-  if (!existing) {
+  if (fetchError || !existing) {
     return { success: false, error: 'Persona no encontrada' }
   }
 
-  const nameChanged = input.name && input.name !== existing.name
-  const employeeChanged = input.employee_id !== undefined && input.employee_id !== existing.employee_id
+  const existingPerson = existing as PersonRecord
+  const nameChanged = input.name && input.name !== existingPerson.name
+  const employeeChanged = input.employee_id !== undefined && input.employee_id !== existingPerson.employee_id
   const needsSync = nameChanged || employeeChanged
 
   const updateData: Record<string, unknown> = {}
@@ -109,12 +108,12 @@ export async function updatePerson(
   if (input.face_photo_url !== undefined) updateData.face_photo_url = input.face_photo_url
   if (needsSync) updateData.status = 'pending_sync'
 
-  const { data, error } = await db
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data, error } = await supabase
     .from('persons')
     .update(updateData)
     .eq('id', id)
-    .select()
-    .single()
+    .select() as any
 
   if (error) {
     if (error.code === '23505') {
@@ -123,31 +122,31 @@ export async function updatePerson(
     return { success: false, error: error.message }
   }
 
-  return { success: true, data: data as PersonRecord }
+  return { success: true, data: (data as PersonRecord[])?.[0] ?? null }
 }
 
 export async function deletePerson(id: string): Promise<ActionResult> {
   const supabase = await createClient()
-  const db = getDb(supabase)
 
   const roleCheck = await checkRole(['admin', 'hr_operator'])
-  if (!roleCheck.success) return roleCheck as ActionResult<PersonRecord>
+  if (!roleCheck.success) return roleCheck
 
-  const { data: existing } = await db
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: existing, error: fetchError } = await supabase
     .from('persons')
     .select('status')
     .eq('id', id)
-    .single()
+    .single() as any
 
-  if (!existing) {
+  if (fetchError || !existing) {
     return { success: false, error: 'Persona no encontrada' }
   }
 
-  if (existing.status === 'inactive') {
+  if ((existing as PersonRecord).status === 'inactive') {
     return { success: false, error: 'La persona ya está inactiva' }
   }
 
-  const { error } = await db
+  const { error } = await supabase
     .from('persons')
     .update({ status: 'inactive' })
     .eq('id', id)
@@ -161,12 +160,11 @@ export async function deletePerson(id: string): Promise<ActionResult> {
 
 export async function reactivatePerson(id: string): Promise<ActionResult> {
   const supabase = await createClient()
-  const db = getDb(supabase)
 
   const roleCheck = await checkRole(['admin', 'hr_operator'])
-  if (!roleCheck.success) return roleCheck as ActionResult<PersonRecord>
+  if (!roleCheck.success) return roleCheck
 
-  const { error } = await db
+  const { error } = await supabase
     .from('persons')
     .update({ status: 'pending_sync' })
     .eq('id', id)
@@ -182,14 +180,14 @@ export async function listPersons(
   options: ListPersonsOptions = {}
 ): Promise<PaginatedResult<PersonRecord>> {
   const supabase = await createClient()
-  const db = getDb(supabase)
 
   const page = options.page ?? 1
   const pageSize = options.pageSize ?? 20
   const from = (page - 1) * pageSize
   const to = from + pageSize - 1
 
-  let query = db.from('persons').select('*', { count: 'exact' })
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let query: any = supabase.from('persons').select('*', { count: 'exact' })
 
   if (options.search) {
     const search = `%${options.search}%`
@@ -208,10 +206,11 @@ export async function listPersons(
 
   query = query.range(from, to)
 
-  const { data, count, error } = await query
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const result = await query as any
+  const { data, count, error } = result
 
   if (error) {
-    console.error('Error listing persons:', error)
     return { data: [], count: 0, page, pageSize, totalPages: 0 }
   }
 
@@ -230,7 +229,6 @@ export async function batchCreatePersons(
   rows: CsvRow[]
 ): Promise<ActionResult<BatchResult>> {
   const supabase = await createClient()
-  const db = getDb(supabase)
 
   const roleCheck = await checkRole(['admin', 'hr_operator'])
   if (!roleCheck.success) return roleCheck as ActionResult<BatchResult>
@@ -273,12 +271,13 @@ export async function batchCreatePersons(
   for (let i = 0; i < validRows.length; i += batchSize) {
     const chunk = validRows.slice(i, i + batchSize)
 
-    const { error } = await db.from('persons').insert(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { error } = await supabase.from('persons').insert(
       chunk.map((row) => ({
         ...row,
         status: 'pending_sync',
       }))
-    )
+    ) as any
 
     if (error) {
       result.errors.push({ row: i + 1, error: error.message })

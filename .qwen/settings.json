@@ -12,7 +12,9 @@
       "mcp__engram__mem_save",
       "Bash(mkdir *)",
       "Bash(true)",
-      "Bash(ls *)"
+      "Bash(ls *)",
+      "Bash(sleep *)",
+      "Bash(curl *)"
     ]
   },
   "$version": 3
