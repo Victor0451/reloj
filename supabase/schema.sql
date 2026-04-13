@@ -194,8 +194,8 @@ BEGIN
   VALUES (
     NEW.id,
     NEW.email,
-    COALESCE(NEW.raw_user_metadata->>'full_name', ''),
-    COALESCE(NEW.raw_user_metadata->>'role', 'hr_operator')
+    COALESCE(NEW.raw_user_meta_data->>'full_name', ''),
+    COALESCE(NEW.raw_user_meta_data->>'role', 'hr_operator')
   );
   RETURN NEW;
 END;

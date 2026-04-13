@@ -22,10 +22,14 @@ export default async function DashboardLayout({
     <SidebarProvider>
       <AppSidebar />
       <SidebarInset>
-        <header className="flex h-16 shrink-0 items-center gap-2 border-b px-4">
+        <header className="sticky top-0 z-10 flex h-16 shrink-0 items-center gap-2 border-b border-border/50 bg-background/80 px-4 backdrop-blur-xl">
           <SidebarTrigger className="-ml-1" />
+          <div className="ml-auto flex items-center gap-3">
+            <div className="h-2 w-2 rounded-full bg-emerald-500 shadow-glow animate-pulse" />
+            <span className="text-xs text-muted-foreground">Sistema Activo</span>
+          </div>
         </header>
-        <main className="flex-1 overflow-auto p-6">
+        <main className="flex-1 overflow-auto bg-gradient-to-br from-muted/30 via-background to-muted/20 p-6">
           {children}
         </main>
       </SidebarInset>

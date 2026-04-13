@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS public.door_commands (
   action TEXT NOT NULL CHECK (action IN ('open', 'close', 'alwaysopen', 'alwaysclose')),
   status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'completed', 'failed')),
   error_message TEXT,
-  requested_by UUID REFERENCES public.auth.users(id) ON DELETE SET NULL,
+  requested_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   completed_at TIMESTAMPTZ
 );
