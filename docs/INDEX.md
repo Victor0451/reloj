@@ -18,6 +18,11 @@
 | [04 - Guía de Desarrollo](./04-guia-de-desarrollo.md) | Manual para desarrolladores: comandos, convenciones, patrones, troubleshooting |
 | [05 - Arquitectura Técnica](./05-arquitectura-tecnica.md) | Diagramas de arquitectura, decisiones técnicas, patrones de diseño, seguridad |
 
+#### Planificación Completa
+| Documento | Descripción |
+|-----------|-------------|
+| [06 - Plan de Fases Futuras (2-7)](./06-plan-de-fases-futuras.md) | Plan detallado de todas las fases restantes: arquitectura, entregables, endpoints ISAPI, criterios de aceptación y cronograma |
+
 ---
 
 ### 🏗️ Fases Futuras
