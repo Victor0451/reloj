@@ -6,7 +6,12 @@
       "Bash(npm run *)",
       "Bash(git add *)",
       "Bash(git commit *)",
-      "Bash(mem_save)"
+      "Bash(mem_save)",
+      "Bash(which *)",
+      "Bash(engram *)",
+      "mcp__engram__mem_save",
+      "Bash(mkdir *)",
+      "Bash(true)"
     ]
   },
   "$version": 3
