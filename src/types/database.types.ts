@@ -178,6 +178,44 @@ export type Database = {
           updated_at?: string
         }
       }
+      door_commands: {
+        Row: {
+          id: string
+          device_id: string | null
+          device_serial: string | null
+          door_no: number
+          action: string
+          status: string
+          error_message: string | null
+          requested_by: string | null
+          created_at: string
+          completed_at: string | null
+        }
+        Insert: {
+          id?: string
+          device_id?: string | null
+          device_serial?: string | null
+          door_no?: number
+          action: string
+          status?: string
+          error_message?: string | null
+          requested_by?: string | null
+          created_at?: string
+          completed_at?: string | null
+        }
+        Update: {
+          id?: string
+          device_id?: string | null
+          device_serial?: string | null
+          door_no?: number
+          action?: string
+          status?: string
+          error_message?: string | null
+          requested_by?: string | null
+          created_at?: string
+          completed_at?: string | null
+        }
+      }
     }
     Views: {
       [_ in never]: never

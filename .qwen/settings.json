@@ -11,7 +11,8 @@
       "Bash(engram *)",
       "mcp__engram__mem_save",
       "Bash(mkdir *)",
-      "Bash(true)"
+      "Bash(true)",
+      "Bash(ls *)"
     ]
   },
   "$version": 3

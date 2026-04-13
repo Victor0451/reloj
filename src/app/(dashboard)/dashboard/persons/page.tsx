@@ -1,9 +1,20 @@
-import { Card, CardContent, CardHeader } from '@/components/ui/card'
+import { Suspense } from 'react'
+import { listPersons, createPerson, updatePerson, deletePerson, reactivatePerson } from '@/actions/persons'
+import {
+  Card,
+  CardContent,
+  CardHeader,
+} from '@/components/ui/card'
+import { Skeleton } from '@/components/ui/skeleton'
 import { Users } from 'lucide-react'
+import { PersonsClient } from './persons-client'
 
-export default function PersonsPage() {
+export default async function PersonsPage() {
+  const initialData = await listPersons({ page: 1 })
+
   return (
     <div className="space-y-8">
+      {/* Page Header */}
       <div className="animate-in-premium page-header">
         <h1 className="text-3xl font-bold tracking-tight">Personas</h1>
         <p className="text-muted-foreground">
@@ -11,6 +22,7 @@ export default function PersonsPage() {
         </p>
       </div>
 
+      {/* Main Content */}
       <div className="animate-in-premium-delay-1">
         <Card className="glass-card">
           <CardHeader>
@@ -23,17 +35,37 @@ export default function PersonsPage() {
             </p>
           </CardHeader>
           <CardContent>
-            <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border/50 bg-muted/20 py-16 text-center">
-              <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/5">
-                <Users className="h-8 w-8 text-muted-foreground/40" />
-              </div>
-              <h3 className="mb-1 text-base font-medium text-foreground">Sin personas registradas</h3>
-              <p className="mx-auto mb-4 max-w-sm text-sm text-muted-foreground">
-                Cuando el agente bridge esté activo, podrás gestionar personas con foto facial y huella desde aquí.
-              </p>
-            </div>
+            <Suspense fallback={<PersonsTableSkeleton />}>
+              <PersonsClient
+                initialData={initialData}
+                createPerson={createPerson}
+                updatePerson={updatePerson}
+                deletePerson={deletePerson}
+                reactivatePerson={reactivatePerson}
+              />
+            </Suspense>
           </CardContent>
         </Card>
+      </div>
+    </div>
+  )
+}
+
+function PersonsTableSkeleton() {
+  return (
+    <div className="space-y-4">
+      <div className="flex gap-3">
+        <Skeleton className="h-9 flex-1 max-w-sm" />
+        <Skeleton className="h-9 w-44" />
+        <div className="ml-auto flex gap-2">
+          <Skeleton className="h-8 w-28" />
+          <Skeleton className="h-8 w-32" />
+        </div>
+      </div>
+      <div className="space-y-2">
+        {Array.from({ length: 5 }).map((_, i) => (
+          <Skeleton key={i} className="h-12 w-full" />
+        ))}
       </div>
     </div>
   )

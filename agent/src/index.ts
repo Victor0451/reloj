@@ -6,6 +6,7 @@ import { startHeartbeat } from "./sync/heartbeat";
 import { startEventSync } from "./sync/syncEvents";
 import { startDoorStatusPolling } from "./sync/pollDoorStatus";
 import { startCommandDispatcher } from "./commands/dispatcher";
+import { startPersonSync } from "./sync/persons";
 import { setupErrorHandlers } from "./utils/errorHandler";
 import { registerCleanup, gracefulShutdown } from "./utils/shutdown";
 import * as log from "./utils/logger";
@@ -57,6 +58,9 @@ async function main() {
 
   const stopDispatcher = startCommandDispatcher(config, supabase, deviceSerial);
   registerCleanup(stopDispatcher);
+
+  const stopPersonSync = startPersonSync(config, supabase);
+  registerCleanup(stopPersonSync);
 
   log.info("agent", "All modules started");
 

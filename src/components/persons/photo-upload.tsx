@@ -1,0 +1,121 @@
+'use client'
+
+import { useState } from 'react'
+import { createClient } from '@/lib/supabase/client'
+import { Button } from '@/components/ui/button'
+import { Loader2, Upload, X, Image } from 'lucide-react'
+import { toast } from 'sonner'
+
+interface PhotoUploadProps {
+  personId?: string
+  currentUrl?: string | null
+  onUploaded: (url: string) => void
+  onRemoved: () => void
+}
+
+export function PhotoUpload({
+  personId,
+  currentUrl,
+  onUploaded,
+  onRemoved,
+}: PhotoUploadProps) {
+  const [uploading, setUploading] = useState(false)
+  const [preview, setPreview] = useState<string | null>(currentUrl ?? null)
+
+  async function handleFile(file: File) {
+    // Validate
+    if (!['image/jpeg', 'image/png'].includes(file.type)) {
+      toast.error('Solo se permiten imágenes JPEG o PNG')
+      return
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error('La imagen no debe superar los 5MB')
+      return
+    }
+
+    setUploading(true)
+
+    try {
+      const supabase = createClient()
+
+      // Generate path
+      const ext = file.name.split('.').pop()
+      const path = `${personId ?? 'temp'}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`
+
+      // Upload
+      const { error } = await supabase.storage
+        .from('face-photos')
+        .upload(path, file, { contentType: file.type })
+
+      if (error) throw error
+
+      // Get public URL
+      const { data } = supabase.storage
+        .from('face-photos')
+        .getPublicUrl(path)
+
+      const url = data.publicUrl
+      setPreview(url)
+      onUploaded(url)
+      toast.success('Foto subida correctamente')
+    } catch (err) {
+      toast.error('Error al subir la foto')
+      console.error('Photo upload error:', err)
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  function handleRemove() {
+    setPreview(null)
+    onRemoved()
+  }
+
+  return (
+    <div className="space-y-3">
+      <label className="block text-sm font-medium">Foto Facial</label>
+
+      {preview ? (
+        <div className="relative inline-block">
+          <img
+            src={preview}
+            alt="Foto facial"
+            className="h-24 w-24 rounded-lg object-cover ring-2 ring-border"
+          />
+          <Button
+            variant="destructive"
+            size="icon"
+            className="absolute -right-2 -top-2 h-6 w-6 rounded-full"
+            onClick={handleRemove}
+            type="button"
+          >
+            <X className="h-3 w-3" />
+          </Button>
+        </div>
+      ) : (
+        <label className="flex h-24 w-24 cursor-pointer items-center justify-center rounded-lg border-2 border-dashed border-border hover:border-primary/50 transition-colors">
+          <input
+            type="file"
+            accept="image/jpeg,image/png"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0]
+              if (file) handleFile(file)
+            }}
+            disabled={uploading}
+          />
+          {uploading ? (
+            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+          ) : (
+            <Image className="h-6 w-6 text-muted-foreground" />
+          )}
+        </label>
+      )}
+
+      <p className="text-xs text-muted-foreground">
+        JPEG o PNG, máximo 5MB
+      </p>
+    </div>
+  )
+}
