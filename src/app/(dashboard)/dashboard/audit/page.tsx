@@ -1,21 +1,40 @@
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardHeader } from '@/components/ui/card'
+import { Shield } from 'lucide-react'
 
 export default function AuditPage() {
   return (
-    <div className="space-y-6">
-      <div>
+    <div className="space-y-8">
+      <div className="animate-in-premium page-header">
         <h1 className="text-3xl font-bold tracking-tight">Auditoría</h1>
-        <p className="text-muted-foreground">Log de acciones de los operadores del sistema</p>
+        <p className="text-muted-foreground">
+          Log inmutable de acciones de operadores
+        </p>
       </div>
-      <Card>
-        <CardHeader>
-          <CardTitle>Auditoría</CardTitle>
-          <CardDescription>Esta funcionalidad estará disponible próximamente</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <p className="text-center text-muted-foreground py-8">🚧 En desarrollo</p>
-        </CardContent>
-      </Card>
+
+      <div className="animate-in-premium-delay-1">
+        <Card className="glass-card">
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <Shield className="h-5 w-5 text-primary" />
+              <span className="text-lg font-semibold">Log de Acciones</span>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              Registro de quién hizo qué y cuándo
+            </p>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border/50 bg-muted/20 py-16 text-center">
+              <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/5">
+                <Shield className="h-8 w-8 text-muted-foreground/40" />
+              </div>
+              <h3 className="mb-1 text-base font-medium text-foreground">Sin registros aún</h3>
+              <p className="mx-auto mb-4 max-w-sm text-sm text-muted-foreground">
+                Las acciones de los operadores quedarán registradas automáticamente. Este log es inmutable.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
     </div>
   )
 }
