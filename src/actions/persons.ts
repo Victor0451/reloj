@@ -1,6 +1,7 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import type {
   ActionResult,
   CreatePersonInput,
@@ -13,13 +14,17 @@ import type {
 } from '@/types/person.types'
 
 async function checkRole(allowedRoles: string[]): Promise<ActionResult> {
+  // Get user from cookie-based client
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
 
   if (!user) return { success: false, error: 'No autenticado' }
 
+  // Use admin client (bypasses RLS) for profile lookup
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data: profile, error: profileError } = await supabase
+  const admin: any = createAdminClient()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: profile, error: profileError } = await admin
     .from('profiles')
     .select('role')
     .eq('id', user.id)
@@ -49,7 +54,9 @@ export async function createPerson(
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data, error } = await supabase
+  const admin: any = createAdminClient()
+
+  const { data, error } = await admin
     .from('persons')
     .insert({
       name: input.name.trim(),
@@ -59,7 +66,8 @@ export async function createPerson(
       face_photo_url: input.face_photo_url || null,
       status: 'pending_sync',
     })
-    .select() as any
+    .select()
+    .single()
 
   if (error) {
     if (error.code === '23505') {
@@ -85,7 +93,10 @@ export async function updatePerson(
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data: existing, error: fetchError } = await supabase
+  const admin: any = createAdminClient()
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: existing, error: fetchError } = await admin
     .from('persons')
     .select('*')
     .eq('id', id)
@@ -109,7 +120,7 @@ export async function updatePerson(
   if (needsSync) updateData.status = 'pending_sync'
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data, error } = await supabase
+  const { data, error } = await admin
     .from('persons')
     .update(updateData)
     .eq('id', id)
@@ -132,7 +143,10 @@ export async function deletePerson(id: string): Promise<ActionResult> {
   if (!roleCheck.success) return roleCheck
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data: existing, error: fetchError } = await supabase
+  const admin: any = createAdminClient()
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: existing, error: fetchError } = await admin
     .from('persons')
     .select('status')
     .eq('id', id)
@@ -146,7 +160,7 @@ export async function deletePerson(id: string): Promise<ActionResult> {
     return { success: false, error: 'La persona ya está inactiva' }
   }
 
-  const { error } = await supabase
+  const { error } = await admin
     .from('persons')
     .update({ status: 'inactive' })
     .eq('id', id)
@@ -164,7 +178,10 @@ export async function reactivatePerson(id: string): Promise<ActionResult> {
   const roleCheck = await checkRole(['admin', 'hr_operator'])
   if (!roleCheck.success) return roleCheck
 
-  const { error } = await supabase
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const admin: any = createAdminClient()
+
+  const { error } = await admin
     .from('persons')
     .update({ status: 'pending_sync' })
     .eq('id', id)
@@ -179,7 +196,8 @@ export async function reactivatePerson(id: string): Promise<ActionResult> {
 export async function listPersons(
   options: ListPersonsOptions = {}
 ): Promise<PaginatedResult<PersonRecord>> {
-  const supabase = await createClient()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const admin: any = createAdminClient()
 
   const page = options.page ?? 1
   const pageSize = options.pageSize ?? 20
@@ -187,7 +205,7 @@ export async function listPersons(
   const to = from + pageSize - 1
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let query: any = supabase.from('persons').select('*', { count: 'exact' })
+  let query: any = admin.from('persons').select('*', { count: 'exact' })
 
   if (options.search) {
     const search = `%${options.search}%`
@@ -237,6 +255,8 @@ export async function batchCreatePersons(
     return { success: true, data: { created: 0, skipped: 0, errors: [] } }
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const admin: any = createAdminClient()
   const result: BatchResult = { created: 0, skipped: 0, errors: [] }
   const validRows: CreatePersonInput[] = []
   const seenEmployeeIds = new Set<string>()
@@ -272,7 +292,7 @@ export async function batchCreatePersons(
     const chunk = validRows.slice(i, i + batchSize)
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { error } = await supabase.from('persons').insert(
+    const { error } = await admin.from('persons').insert(
       chunk.map((row) => ({
         ...row,
         status: 'pending_sync',
