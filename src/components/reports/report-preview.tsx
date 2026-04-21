@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { getAttendanceSummary } from '@/actions/reports'
-import type { AttendanceSummaryRow, ReportFilters } from '@/types/report.types'
+import type { AttendanceSummaryRow, AttendanceSummaryResult, ReportFilters } from '@/types/report.types'
 import {
   Table,
   TableBody,
@@ -53,6 +53,7 @@ export default function ReportPreview({
   const [data, setData] = useState<AttendanceSummaryRow[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [truncated, setTruncated] = useState(false)
 
   const fetchData = useCallback(async () => {
     if (!dateFrom || !dateTo) {
@@ -69,8 +70,9 @@ export default function ReportPreview({
         dateTo,
         employeeId: employeeId || undefined,
       }
-      const result = await getAttendanceSummary(filters)
-      setData(result)
+      const result: AttendanceSummaryResult = await getAttendanceSummary(filters)
+      setData(result.rows)
+      setTruncated(result.truncated)
     } catch (err) {
       console.error('Error fetching attendance summary:', err)
       setError('Error al cargar los datos del reporte')
@@ -116,6 +118,10 @@ export default function ReportPreview({
         </div>
       </Card>
     )
+  }
+
+  if (truncated) {
+    toast.warning('El reporte puede estar incompleto. El rango de fechas supera los 50.000 registros.')
   }
 
   return (

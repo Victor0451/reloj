@@ -48,6 +48,14 @@ export default function ReportsPage() {
       toast.error('Rango de fechas inválido')
       return
     }
+    // Validate max range: 365 days
+    const fromMs = new Date(dateFrom).getTime()
+    const toMs = new Date(dateTo).getTime()
+    const rangeDays = Math.round((toMs - fromMs) / (1000 * 60 * 60 * 24))
+    if (rangeDays > 365) {
+      toast.error('El rango máximo permitido es 1 año (365 días)')
+      return
+    }
     startGenerating(() => {
       setPreviewKey((k) => k + 1)
     })
@@ -59,6 +67,15 @@ export default function ReportsPage() {
       return
     }
 
+    // Validate max range: 365 days
+    const fromMs = new Date(dateFrom).getTime()
+    const toMs = new Date(dateTo).getTime()
+    const rangeDays = Math.round((toMs - fromMs) / (1000 * 60 * 60 * 24))
+    if (rangeDays > 365) {
+      toast.error('El rango máximo permitido es 1 año (365 días)')
+      return
+    }
+
     const filters: ReportFilters = {
       dateFrom,
       dateTo,
@@ -67,9 +84,13 @@ export default function ReportsPage() {
 
     startExportExcel(async () => {
       try {
-        const blob = await exportAttendanceExcel(filters)
+        const { blob, truncated } = await exportAttendanceExcel(filters)
         triggerDownload(blob, `reporte-asistencia-${dateFrom}-${dateTo}.xlsx`)
-        toast.success('Excel exportado correctamente')
+        if (truncated) {
+          toast.warning('El archivo puede estar incompleto — se alcanzaron los 50.000 registros')
+        } else {
+          toast.success('Excel exportado correctamente')
+        }
       } catch (err) {
         console.error('Excel export error:', err)
         toast.error('Error al exportar Excel')
@@ -113,7 +134,8 @@ export default function ReportsPage() {
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)
-    URL.revokeObjectURL(url)
+    // Defer revoke so browser has time to start the download
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
   }
 
   const isBusy = isGenerating || isExportingExcel || isExportingPdf

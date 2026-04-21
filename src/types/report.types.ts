@@ -43,6 +43,15 @@ export interface ReportFilters {
 }
 
 /**
+ * Result of getAttendanceSummary including data and truncation status.
+ */
+export interface AttendanceSummaryResult {
+  rows: AttendanceSummaryRow[]
+  /** True when the 50k row limit was hit — data may be incomplete */
+  truncated: boolean
+}
+
+/**
  * Supported export formats for reports.
  */
 export type ExportFormat = 'excel' | 'pdf'

@@ -27,14 +27,14 @@ const EVENT_TYPE_SALIDA = '1'  // salida (check-out)
  */
 export async function getAttendanceSummary(
   filters: ReportFilters
-): Promise<AttendanceSummaryRow[]> {
+): Promise<{ rows: AttendanceSummaryRow[]; truncated: boolean }> {
   const admin = createAdminClient()
 
   // Build datetime bounds from date strings
   const dateFromIso = `${filters.dateFrom}T00:00:00.000Z`
   const dateToIso = `${filters.dateTo}T23:59:59.999Z`
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  // Supabase query builder is built incrementally; type is complex
   let query: any = admin
     .from('access_events')
     .select('employee_id, event_time, event_type')
@@ -51,15 +51,16 @@ export async function getAttendanceSummary(
 
   if (error) {
     console.error('getAttendanceSummary query error:', error)
-    return []
+    return { rows: [], truncated: false }
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const rows = (data ?? []) as Array<{
     employee_id: string | null
     event_time: string
     event_type: string
   }>
+
+  const truncated = rows.length === MAX_EVENTS_FOR_SUMMARY
 
   // Group by employee_id + calendar date
   // Key: `${employee_id || ''}::${YYYY-MM-DD}`
@@ -159,7 +160,7 @@ export async function getAttendanceSummary(
     return (a.employee_id ?? '').localeCompare(b.employee_id ?? '')
   })
 
-  return results
+  return { rows: results, truncated }
 }
 
 /**
@@ -171,8 +172,12 @@ export async function getAttendanceSummary(
  */
 export async function exportAttendanceExcel(
   filters: ReportFilters
-): Promise<Blob> {
-  const summary = await getAttendanceSummary(filters)
+): Promise<{ blob: Blob; truncated: boolean }> {
+  const { rows: summary, truncated } = await getAttendanceSummary(filters)
+
+  if (summary.length === 0) {
+    throw new Error('No hay datos para el rango seleccionado. Verificá las fechas.')
+  }
 
   // Build worksheet data
   // Headers
@@ -231,26 +236,23 @@ export async function exportAttendanceExcel(
   const buf = XLSX.write(wb, { bookType: 'xlsx', type: 'array' })
   const uint8 = new Uint8Array(buf)
 
-  return new Blob([uint8], {
-    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  })
+  return {
+    blob: new Blob([uint8], {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    }),
+    truncated,
+  }
 }
 
 /**
  * Export attendance summary as a PDF file.
  *
  * Requires @react-pdf/renderer to be installed.
- * Throws error if @react-pdf/renderer is not installed.
- *
- * NOTE: Full PDF implementation requires a separate React component file for
- * @react-pdf/renderer JSX to be transpiled correctly. This will be addressed
- * in Phase 3 when the library is installed and a PDFDocument component is created.
+ * Returns an error message if the library is not installed.
  */
 export async function exportAttendancePDF(
   _filters: ReportFilters
 ): Promise<Blob> {
-  // Dynamically check if @react-pdf/renderer is available
-  // Using require to avoid TS2307 error when module is not installed
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   let pdfRendererAvailable = false
   try {
@@ -262,15 +264,11 @@ export async function exportAttendancePDF(
 
   if (!pdfRendererAvailable) {
     throw new Error(
-      'PDF export not available: @react-pdf/renderer is not installed. ' +
-      'To enable PDF export, run: npm install @react-pdf/renderer'
+      'PDF export requires @react-pdf/renderer. Run: npm install @react-pdf/renderer'
     )
   }
 
-  // If we reach here, the library IS installed but we haven't implemented
-  // the PDF rendering yet. This is a placeholder for Phase 3.
   throw new Error(
-    'PDF export implementation pending. @react-pdf/renderer is installed but ' +
-    'PDF rendering is not yet implemented. Will be completed in Phase 3.'
+    'PDF export is not yet implemented. Will be available in a future update.'
   )
 }
