@@ -74,27 +74,27 @@ export function PhotoUpload({
 
   return (
     <div className="space-y-3">
-      <label className="block text-sm font-medium">Foto Facial</label>
+      <label className="block text-sm font-semibold text-foreground">Foto Facial</label>
 
       {preview ? (
-        <div className="relative inline-block">
+        <div className="relative inline-block group">
           <img
             src={preview}
             alt="Foto facial"
-            className="h-24 w-24 rounded-lg object-cover ring-2 ring-border"
+            className="h-28 w-28 rounded-xl object-cover ring-2 ring-primary/20 shadow-md transition-all group-hover:ring-primary/40"
           />
           <Button
             variant="destructive"
             size="icon"
-            className="absolute -right-2 -top-2 h-6 w-6 rounded-full"
+            className="absolute -right-2 -top-2 h-7 w-7 rounded-full shadow-lg transition-transform hover:scale-110 active:scale-95"
             onClick={handleRemove}
             type="button"
           >
-            <X className="h-3 w-3" />
+            <X className="h-4 w-4" />
           </Button>
         </div>
       ) : (
-        <label className="flex h-24 w-24 cursor-pointer items-center justify-center rounded-lg border-2 border-dashed border-border hover:border-primary/50 transition-colors">
+        <label className="flex h-28 w-28 cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-border/50 bg-muted/20 hover:border-primary/50 hover:bg-primary/5 transition-all duration-300 group">
           <input
             type="file"
             accept="image/jpeg,image/png"
@@ -106,14 +106,19 @@ export function PhotoUpload({
             disabled={uploading}
           />
           {uploading ? (
-            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
           ) : (
-            <Image className="h-6 w-6 text-muted-foreground" />
+            <>
+              <div className="mb-1 flex h-10 w-10 items-center justify-center rounded-full bg-primary/5 group-hover:bg-primary/10 transition-colors">
+                <Image className="h-5 w-5 text-muted-foreground group-hover:text-primary transition-colors" />
+              </div>
+              <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground group-hover:text-primary transition-colors">Subir</span>
+            </>
           )}
         </label>
       )}
 
-      <p className="text-xs text-muted-foreground">
+      <p className="text-[11px] font-medium text-muted-foreground">
         JPEG o PNG, máximo 5MB
       </p>
     </div>

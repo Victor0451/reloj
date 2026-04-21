@@ -1,0 +1,267 @@
+'use client'
+
+import { useState, useRef } from 'react'
+import Papa from 'papaparse'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Badge } from '@/components/ui/badge'
+import { Skeleton } from '@/components/ui/skeleton'
+import { batchCreatePersons } from '@/actions/persons'
+import type { CsvRow, BatchResult } from '@/types/person.types'
+import { Loader2, FileUp, Upload, CheckCircle2, AlertCircle } from 'lucide-react'
+import { toast } from 'sonner'
+
+interface CsvImportDialogProps {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  onSuccess: () => void
+}
+
+type ImportStep = 'upload' | 'preview' | 'importing' | 'result'
+
+export function CsvImportDialog({ open, onOpenChange, onSuccess }: CsvImportDialogProps) {
+  const [step, setStep] = useState<ImportStep>('upload')
+  const [parsedRows, setParsedRows] = useState<CsvRow[]>([])
+  const [parseErrors, setParseErrors] = useState<string[]>([])
+  const [result, setResult] = useState<BatchResult | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  function handleFile(file: File) {
+    Papa.parse(file, {
+      header: true,
+      skipEmptyLines: true,
+      complete: (results) => {
+        const rows = results.data as CsvRow[]
+        const errors: string[] = []
+
+        // Validate header
+        if (!results.meta.fields?.includes('name')) {
+          errors.push('La columna "name" es requerida en el CSV')
+          setParseErrors(errors)
+          setParsedRows([])
+          setStep('preview')
+          return
+        }
+
+        // Validate rows
+        const validRows: CsvRow[] = []
+        rows.forEach((row, i) => {
+          if (!row.name || row.name.trim() === '') {
+            errors.push(`Fila ${i + 1}: nombre requerido`)
+          } else {
+            validRows.push(row)
+          }
+        })
+
+        setParsedRows(validRows)
+        setParseErrors(errors)
+        setStep('preview')
+      },
+      error: (err) => {
+        setParseErrors([`Error al parsear: ${err.message}`])
+        setStep('preview')
+      },
+    })
+  }
+
+  async function handleImport() {
+    setStep('importing')
+
+    const result = await batchCreatePersons(parsedRows)
+
+    if (result.success && result.data) {
+      setResult(result.data)
+      setStep('result')
+
+      const summary = `${result.data.created} creadas, ${result.data.skipped} omitidas`
+      if (result.data.errors.length > 0) {
+        toast.warning(`Importación parcial: ${summary}`)
+      } else {
+        toast.success(`Importación completa: ${summary}`)
+      }
+    } else {
+      toast.error(result.error ?? 'Error al importar')
+      setStep('preview')
+    }
+  }
+
+  function handleClose() {
+    setStep('upload')
+    setParsedRows([])
+    setParseErrors([])
+    setResult(null)
+    onOpenChange(false)
+  }
+
+  function handleSuccess() {
+    onSuccess()
+    handleClose()
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(val) => { if (!val) handleClose() }}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Importar Personas desde CSV</DialogTitle>
+          <DialogDescription>
+            El CSV debe tener las columnas: name, employee_id, department, card_number
+          </DialogDescription>
+        </DialogHeader>
+
+        {/* Step: Upload */}
+        {step === 'upload' && (
+          <div className="space-y-4 py-4">
+            <div className="flex flex-col items-center justify-center rounded-lg border-2 border-dashed border-border p-8">
+              <FileUp className="mb-3 h-10 w-10 text-muted-foreground" />
+              <Label className="cursor-pointer">
+                <span className="text-sm font-medium text-primary hover:underline">
+                  Seleccionar archivo
+                </span>
+                <Input
+                  type="file"
+                  accept=".csv"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0]
+                    if (file) {
+                      handleFile(file)
+                      // Reset file input to allow re-selecting same file
+                      e.target.value = ''
+                    }
+                  }}
+                />
+              </Label>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Solo archivos .csv
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Step: Preview */}
+        {step === 'preview' && (
+          <div className="space-y-4 py-4">
+            {parseErrors.length > 0 && (
+              <div className="rounded-lg border border-destructive/20 bg-destructive/10 p-3">
+                <div className="flex items-center gap-2">
+                  <AlertCircle className="h-4 w-4 text-destructive" />
+                  <span className="text-sm font-medium text-destructive">
+                    Errores de validación
+                  </span>
+                </div>
+                <ul className="mt-2 text-xs text-destructive space-y-1">
+                  {parseErrors.map((err, i) => (
+                    <li key={i}>{err}</li>  // parseErrors doesn't have row property, use index OK
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {parsedRows.length > 0 && (
+              <div className="rounded-lg border p-3">
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                  <span className="text-sm font-medium">
+                    {parsedRows.length} filas válidas encontradas
+                  </span>
+                </div>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Las primeras 3 filas de vista previa:
+                </p>
+                <div className="mt-2 space-y-1">
+                  {parsedRows.slice(0, 3).map((row, i) => (
+                    <div key={i} className="text-xs bg-muted px-2 py-1 rounded">
+                      <span className="font-medium">{row.name}</span>
+                      {row.employee_id && (
+                        <span className="text-muted-foreground"> — {row.employee_id}</span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setStep('upload')}>
+                Cambiar archivo
+              </Button>
+              <Button
+                variant="gradient"
+                onClick={handleImport}
+                disabled={parsedRows.length === 0}
+              >
+                <Upload className="mr-2 h-4 w-4" />
+                Importar {parsedRows.length} personas
+              </Button>
+            </DialogFooter>
+          </div>
+        )}
+
+        {/* Step: Importing */}
+        {step === 'importing' && (
+          <div className="flex flex-col items-center justify-center py-12">
+            <Loader2 className="mb-4 h-8 w-8 animate-spin text-primary" />
+            <p className="text-sm font-medium">Importando personas...</p>
+            <p className="text-xs text-muted-foreground">
+              Esto puede tomar unos momentos
+            </p>
+          </div>
+        )}
+
+        {/* Step: Result */}
+        {step === 'result' && result && (
+          <div className="space-y-4 py-4">
+            <div className="rounded-lg border p-4">
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="h-5 w-5 text-emerald-500" />
+                <span className="font-medium">Importación completada</span>
+              </div>
+              <div className="mt-3 grid grid-cols-3 gap-3 text-center">
+                <div>
+                  <p className="text-2xl font-bold text-emerald-600">{result.created}</p>
+                  <p className="text-xs text-muted-foreground">Creadas</p>
+                </div>
+                <div>
+                  <p className="text-2xl font-bold text-amber-600">{result.skipped}</p>
+                  <p className="text-xs text-muted-foreground">Omitidas</p>
+                </div>
+                <div>
+                  <p className="text-2xl font-bold text-destructive">{result.errors.length}</p>
+                  <p className="text-xs text-muted-foreground">Errores</p>
+                </div>
+              </div>
+            </div>
+
+            {result.errors.length > 0 && (
+              <div className="max-h-32 overflow-y-auto space-y-1">
+                {result.errors.map((err) => (
+                  <div key={err.row} className="text-xs text-destructive bg-destructive/10 px-2 py-1 rounded">
+                    Fila {err.row}: {err.error}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <DialogFooter>
+              <Button variant="outline" onClick={handleClose}>
+                Cerrar
+              </Button>
+              <Button variant="gradient" onClick={handleSuccess}>
+                Ver Personas
+              </Button>
+            </DialogFooter>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  )
+}

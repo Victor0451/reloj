@@ -29,12 +29,14 @@
 
 | Fase | Nombre | Estado | Descripción |
 |------|--------|--------|-------------|
-| **Fase 2** | Agente Bridge | ⏳ Pendiente | Agente Node.js local para conectar con el reloj Hikvision vía ISAPI |
-| **Fase 3** | Gestión de Personas | ⏳ Pendiente | CRUD completo de personas con foto facial y huella |
-| **Fase 4** | Eventos y Dashboard | ⏳ Pendiente | Listado de eventos en tiempo real, dashboard con KPIs |
-| **Fase 5** | Reportes | ⏳ Pendiente | Reportes de asistencia con exportación PDF y Excel |
-| **Fase 6** | Control de Puerta | ⏳ Pendiente | Apertura/cierre remoto de puerta |
-| **Fase 7** | QA y Hardening | ⏳ Pendiente | Testing, revisión de seguridad, documentación final |
+| **Fase 1** | Infraestructura Base | ✅ Completa | Auth, dashboard, schema DB |
+| **Fase 2** | Agente Bridge | ✅ Completa | Agente Node.js local ISAPI con adapter pattern (14-Abr-2026) |
+| **Fase 3** | Gestión de Personas | ✅ Completa | CRUD personas con sincronización |
+| **Fase 3.5** | Consolidación | ✅ Completa | Legacy cleanup, verification, adapter pattern stable (21-Abr-2026) |
+| **Fase 4** | Eventos y Dashboard | ⏳ Pendiente | Listado de eventos en tiempo real, KPIs |
+| **Fase 5** | Reportes | ⏳ Pendiente | Reportes de asistencia PDF/Excel |
+| **Fase 6** | Control de Puerta | ⏳ Pendiente | Apertura/cierre remoto |
+| **Fase 7** | QA y Hardening | ⏳ Pendiente | Testing, seguridad, docs finales |
 
 ---
 
@@ -88,14 +90,15 @@ reloj/
 
 ```
 Fase 1: Infraestructura Base          ████████████████████ 100% ✅
-Fase 2: Agente Bridge                 ░░░░░░░░░░░░░░░░░░░░   0%
-Fase 3: Gestión de Personas           ░░░░░░░░░░░░░░░░░░░░   0%
+Fase 2: Agente Bridge                 ████████████████████ 100% ✅
+Fase 3: Gestión de Personas           ████████████████████ 100% ✅
+Fase 3.5: Consolidación               ████████████████████ 100% ✅
 Fase 4: Eventos y Dashboard           ░░░░░░░░░░░░░░░░░░░░   0%
 Fase 5: Reportes                      ░░░░░░░░░░░░░░░░░░░░   0%
 Fase 6: Control de Puerta             ░░░░░░░░░░░░░░░░░░░░   0%
 Fase 7: QA y Hardening                ░░░░░░░░░░░░░░░░░░░░   0%
                                        ─────────────────
-Progreso Total:                       ░░░░░░░░░░░░░░░░░░░░  ~14%
+Progreso Total:                       █████████████░░░░░░░░  ~50%
 ```
 
 ---
@@ -105,7 +108,10 @@ Progreso Total:                       ░░░░░░░░░░░░░░
 | Fecha | Cambio | Autor |
 |-------|--------|-------|
 | 2026-04-13 | Creación del proyecto, Fase 1 completa | Equipo |
+| 2026-04-13 | Fase 3 completa: Persons CRUD | Equipo |
+| 2026-04-14 | Fase 2 completada + Judgment Day aprobación (XML fix) | Equipo |
+| 2026-04-21 | Fase 3.5 Consolidación: legacy files archived to sync/legacy/, adapter pattern verified, 3 sync loops confirmed working | Equipo |
 
 ---
 
-*Última actualización: 13 de abril de 2026*
+*Última actualización: 21 de abril de 2026*

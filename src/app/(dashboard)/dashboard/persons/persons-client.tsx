@@ -1,27 +1,21 @@
 'use client'
 
-import { useState, useCallback } from 'react'
-import { useRouter } from 'next/navigation'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { toast } from 'sonner'
 import { listPersons, createPerson, updatePerson, deletePerson, reactivatePerson } from '@/actions/persons'
 import type { PersonRecord, CreatePersonInput, UpdatePersonInput } from '@/types/person.types'
 import PersonsTableServer from '@/components/persons/persons-table'
 import { PersonDialog } from '@/components/persons/person-dialog'
 import { CsvImportDialog } from '@/components/persons/csv-import-dialog'
+import { createClient } from '@/lib/supabase/client'
 
 interface PersonsClientProps {
   initialData: Awaited<ReturnType<typeof listPersons>>
-  createPerson: typeof createPerson
-  updatePerson: typeof updatePerson
-  deletePerson: typeof deletePerson
-  reactivatePerson: typeof reactivatePerson
 }
 
 export function PersonsClient({
   initialData,
 }: PersonsClientProps) {
-  const router = useRouter()
-
   // Dialog states
   const [dialogOpen, setDialogOpen] = useState(false)
   const [dialogMode, setDialogMode] = useState<'create' | 'edit'>('create')
@@ -30,20 +24,72 @@ export function PersonsClient({
 
   // Data state
   const [data, setData] = useState(initialData)
-  const [searchInput, setSearchInput] = useState('')
-  const [statusFilter, setStatusFilter] = useState('all')
-  const [loading, setLoading] = useState(false)
+  const [tableKey, setTableKey] = useState(0)
+  const [isRealtimeConnected, setIsRealtimeConnected] = useState(false)
+  const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null)
+  const channelRef = useRef<ReturnType<ReturnType<typeof createClient>['channel']> | null>(null)
+  const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  async function refreshData(page: number = data.page) {
-    setLoading(true)
-    const result = await listPersons({
-      page,
-      search: searchInput || undefined,
-      statusFilter: statusFilter !== 'all' ? statusFilter : undefined,
-    })
-    setData(result)
-    setLoading(false)
+  if (supabaseRef.current == null) {
+    supabaseRef.current = createClient()
   }
+
+  const refreshData = useCallback(async (page: number = data.page) => {
+    try {
+      const result = await listPersons({
+        page,
+      })
+      setData(result)
+      setTableKey((k) => k + 1) // Force re-render de la tabla
+    } catch (err) {
+      console.error('Failed to refresh data:', err)
+      toast.error('Error al cargar las personas')
+    }
+  }, [data.page])
+
+  const scheduleRefresh = useCallback(() => {
+    if (refreshTimerRef.current) {
+      clearTimeout(refreshTimerRef.current)
+    }
+
+    refreshTimerRef.current = setTimeout(() => {
+      void refreshData(data.page)
+    }, 250)
+  }, [data.page, refreshData])
+
+  useEffect(() => {
+    const supabase = supabaseRef.current
+    if (!supabase) return
+
+    const channel = supabase
+      .channel('persons-realtime-channel')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'persons',
+        },
+        () => {
+          scheduleRefresh()
+        }
+      )
+      .subscribe((status) => {
+        setIsRealtimeConnected(status === 'SUBSCRIBED')
+      })
+
+    channelRef.current = channel
+
+    return () => {
+      if (refreshTimerRef.current) {
+        clearTimeout(refreshTimerRef.current)
+      }
+
+      if (channelRef.current) {
+        void supabase.removeChannel(channelRef.current)
+      }
+    }
+  }, [scheduleRefresh])
 
   async function handleCreate(formData: { name: string; employee_id: string; department: string; card_number: string }) {
     const input: CreatePersonInput = {
@@ -122,7 +168,12 @@ export function PersonsClient({
 
   return (
     <>
+      <div className="mb-4 flex items-center gap-2 text-xs text-muted-foreground">
+        <span className={`h-2 w-2 rounded-full ${isRealtimeConnected ? 'bg-emerald-500' : 'bg-amber-500 animate-pulse'}`} />
+        {isRealtimeConnected ? 'Personas en vivo' : 'Conectando Realtime...'}
+      </div>
       <PersonsTableServer
+        key={tableKey}
         initialData={data}
         onEdit={handleEditPerson}
         onDeactivate={handleDeactivate}

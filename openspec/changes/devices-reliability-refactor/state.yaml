@@ -1,0 +1,9 @@
+change: devices-reliability-refactor
+status: planned
+phase: tasks-ready
+updated_at: 2026-04-17
+artifacts:
+  - proposal
+  - spec
+  - design
+  - tasks

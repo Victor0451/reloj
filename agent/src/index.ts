@@ -1,82 +1,206 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import "dotenv/config";
+import "./adapters/hikvision.adapter"; // Side-effect: registers HikvisionAdapter
 import { loadConfig } from "./config";
-import { getSupabase } from "./supabase";
-import { registerDevice } from "./sync/registerDevice";
-import { startHeartbeat } from "./sync/heartbeat";
-import { startEventSync } from "./sync/syncEvents";
-import { startDoorStatusPolling } from "./sync/pollDoorStatus";
-import { startCommandDispatcher } from "./commands/dispatcher";
-import { startPersonSync } from "./sync/persons";
+import { getSupabase, getSupabaseRealtime } from "./supabase";
+import { getAdapterManager } from "./core/adapter-manager";
 import { setupErrorHandlers } from "./utils/errorHandler";
-import { registerCleanup, gracefulShutdown } from "./utils/shutdown";
+import { registerCleanup } from "./utils/shutdown";
 import * as log from "./utils/logger";
 
+// ─── Sync Loops (Refactorizados con Adaptadores) ────────────────────────────
+
+import { startSingleDeviceHeartbeat } from "./sync/heartbeat-loop";
+import { startSingleDeviceEventSync } from "./sync/event-sync-loop";
+import { startSingleDevicePersonSync } from "./sync/person-sync-loop";
+
+// ─── Types ───────────────────────────────────────────────────────────────────
+
+interface DeviceFromDB {
+  id: string;
+  serial_number: string;
+  name: string;
+  brand: string | null;
+  ip_address: string | null;
+  device_username: string | null;
+  device_password_encrypted: string | null;
+  status: string;
+}
+
+interface DeviceReadiness {
+  ready: DeviceFromDB[];
+  skipped: Array<{ name: string; id: string; reason: string }>;
+}
+
+// ─── Fetch all devices from DB ───────────────────────────────────────────────
+
+async function fetchAllDevices(supabase: any): Promise<DeviceReadiness> {
+  const { data, error } = await supabase
+    .from("devices")
+    .select("id, serial_number, name, brand, ip_address, device_username, device_password_encrypted, status")
+    .order("name", { ascending: true });
+
+  if (error) {
+    log.error("agent", "Failed to fetch devices", { error: error.message });
+    return { ready: [], skipped: [] };
+  }
+
+  const rows = (data || []) as DeviceFromDB[];
+  const ready: DeviceFromDB[] = [];
+  const skipped: Array<{ name: string; id: string; reason: string }> = [];
+
+  for (const device of rows) {
+    const missing: string[] = [];
+    if (!device.ip_address) missing.push("ip_address");
+    if (!device.device_username) missing.push("device_username");
+    if (!device.device_password_encrypted) missing.push("device_password_encrypted");
+
+    if (missing.length > 0) {
+      skipped.push({
+        id: device.id,
+        name: device.name,
+        reason: `missing ${missing.join(", ")}`,
+      });
+      continue;
+    }
+
+    ready.push(device);
+  }
+
+  return { ready, skipped };
+}
+
+// ─── Main ─────────────────────────────────────────────────────────────────────
+
 async function main() {
-  // Set up global error handlers first
+  // Set up error handlers
   setupErrorHandlers();
 
-  // Load and validate configuration
+  // Load configuration
   const config = loadConfig();
   log.setLogLevel(config.logLevel);
 
-  log.info("agent", "Starting Agent Bridge...", {
-    device: `${config.deviceIp}:${config.devicePort}`,
-    logLevel: config.logLevel,
+  log.info("agent", "Starting Agent Bridge (Multi-Device Mode)...", {
+    mode: "multi-brand",
   });
 
-  // Initialize Supabase client
-  const supabase = getSupabase(config);
+  // Initialize Supabase clients
+  const supabaseAdmin = getSupabase(config);
+  const supabaseRealtime = getSupabaseRealtime(config);
 
-  // Step 1: Register device
-  await registerDevice(config, supabase);
+  // Initialize Adapter Manager
+  const adapterManager = getAdapterManager();
 
-  // We need the device serial for subsequent loops
-  // Fetch it from Supabase (it was just upserted)
-  const { data: deviceRow } = await supabase
-    .from("devices")
-    .select("serial_number")
-    .eq("ip_address", config.deviceIp)
-    .single();
+  // Fetch all online devices from database
+  log.info("agent", "Fetching devices from database...");
+  const { ready: devices, skipped } = await fetchAllDevices(supabaseAdmin);
 
-  if (!deviceRow) {
-    log.error("agent", "Device not found after registration — exiting");
-    process.exit(1);
+  if (devices.length === 0) {
+    log.warn("agent", "No ready devices found in database. Waiting...");
+    if (skipped.length > 0) {
+      log.info("agent", "Some devices were skipped due to incomplete readiness", {
+        skipped: skipped.map((s) => `${s.name} (${s.reason})`).join("; "),
+      });
+    }
+    log.info("agent", "Add devices via the frontend or complete device connection settings.");
+  } else {
+    log.info("agent", `Found ${devices.length} device(s) to manage`, {
+      devices: devices.map(d => `${d.name} (${d.ip_address})`).join(", ")
+    });
+    if (skipped.length > 0) {
+      log.info("agent", `Skipped ${skipped.length} device(s) with incomplete config`, {
+        skipped: skipped.map((s) => `${s.name} (${s.reason})`).join("; "),
+      });
+    }
   }
 
-  const deviceSerial = deviceRow.serial_number as string;
-  log.info("agent", `Using device: ${deviceSerial}`);
+  // Start sync loops for each device
+  for (const device of devices) {
+    const deviceId = device.id;
+    const deviceSerial = device.serial_number;
+    const deviceIp = device.ip_address!;
+    const deviceUsername = device.device_username || "admin";
+    const devicePassword = device.device_password_encrypted || "";
+    const deviceBrand = device.brand || "hikvision";
 
-  // Step 2: Start all sync loops
-  const stopHeartbeat = startHeartbeat(config, supabase, deviceSerial);
-  registerCleanup(stopHeartbeat);
+    log.info("agent", `Setting up sync loops for: ${device.name}`, {
+      ip: deviceIp,
+      brand: deviceBrand,
+    });
 
-  const stopEventSync = startEventSync(config, supabase, deviceSerial);
-  registerCleanup(stopEventSync);
+    // ── Heartbeat Loop ───────────────────────────────────────────────
+    const stopHeartbeat = startSingleDeviceHeartbeat(
+      adapterManager,
+      deviceId,
+      deviceSerial,
+      supabaseRealtime,
+      {
+        intervalMs: config.heartbeatIntervalMs,
+        deviceIp,
+        deviceBrand,
+        deviceUsername,
+        devicePassword,
+      }
+    );
+    registerCleanup(stopHeartbeat);
 
-  const stopDoorPoll = startDoorStatusPolling(config, deviceSerial);
-  registerCleanup(stopDoorPoll);
+    // ── Event Sync Loop ────────────────────────────────────────────
+    const stopEventSync = startSingleDeviceEventSync(
+      adapterManager,
+      deviceId,
+      deviceSerial,
+      supabaseRealtime,
+      {
+        intervalMs: config.pollIntervalMs,
+        maxResults: 200,
+        safetyWindowMs: 300000,
+        deviceIp,
+        deviceBrand,
+        deviceUsername,
+        devicePassword,
+      }
+    );
+    registerCleanup(stopEventSync);
 
-  const stopDispatcher = startCommandDispatcher(config, supabase, deviceSerial);
-  registerCleanup(stopDispatcher);
+    // ── Person Sync Loop ──────────────────────────────────────────
+    const stopPersonSync = startSingleDevicePersonSync(
+      adapterManager,
+      deviceId,
+      deviceSerial,
+      supabaseAdmin,
+      {
+        intervalMs: 15000,
+        batchSize: 50,
+        deviceIp,
+        deviceBrand,
+        deviceUsername,
+        devicePassword,
+      }
+    );
+    registerCleanup(stopPersonSync);
+  }
 
-  const stopPersonSync = startPersonSync(config, supabase);
-  registerCleanup(stopPersonSync);
+  log.info("agent", "All sync loops started", {
+    deviceCount: devices.length,
+    heartbeat: config.heartbeatIntervalMs,
+    eventSync: config.pollIntervalMs,
+  });
 
-  log.info("agent", "All modules started");
-
-  // Step 3: Set up graceful shutdown
+  // Graceful shutdown
   process.on("SIGTERM", async () => {
-    await gracefulShutdown(supabase, deviceSerial);
+    log.info("shutdown", "Shutting down agent...");
+    await adapterManager.disconnectAll();
     process.exit(0);
   });
 
   process.on("SIGINT", async () => {
-    await gracefulShutdown(supabase, deviceSerial);
+    log.info("shutdown", "Shutting down agent...");
+    await adapterManager.disconnectAll();
     process.exit(0);
   });
 }
 
 main().catch((err) => {
-  log.error("agent", "Fatal startup error — exiting", { err });
+  log.error("agent", "Fatal startup error", { err });
   process.exit(1);
 });

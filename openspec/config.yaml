@@ -1,0 +1,44 @@
+schema: spec-driven
+
+context: |
+  Tech stack: Next.js 16.2.3 (App Router), React 19.2.4, TypeScript 5.x, Tailwind CSS 4.x, Supabase, Node-based Agent Bridge.
+  Architecture: Dashboard web app + Supabase backend + external `agent/` service with multi-brand adapter foundation.
+  Testing: No test runner detected in app workspace; quality gates available via ESLint and TypeScript.
+  Style: App Router with route groups, `@/*` alias, kebab-case file naming, shadcn/ui style components.
+
+testing:
+  strict_tdd: false
+  strict_tdd_reason: No test runner detected
+  test_runner: null
+  unit_tests: false
+  integration_tests: false
+  e2e_tests: false
+  coverage: false
+  quality_tools:
+    linter: eslint
+    type_checker: tsc --noEmit
+    formatter: null
+
+rules:
+  proposal:
+    - Include rollback plan for risky changes
+    - Identify affected modules and data boundaries
+  specs:
+    - Use Given/When/Then format for scenarios
+    - Use RFC 2119 keywords (MUST, SHALL, SHOULD, MAY)
+  design:
+    - Prefer a single source of truth for runtime device state
+    - Separate secret-bearing server data from client-safe DTOs
+  tasks:
+    - Group by phase and keep tasks completable in one session
+    - Prioritize security and operational robustness before UI polish
+  apply:
+    - Follow existing Next.js App Router and Supabase patterns
+    tdd: false
+    test_command: ""
+  verify:
+    test_command: ""
+    build_command: "npm run build"
+    coverage_threshold: 0
+  archive:
+    - Warn before merging destructive deltas

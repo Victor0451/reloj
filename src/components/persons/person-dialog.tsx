@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import {
   Dialog,
   DialogContent,
@@ -36,16 +36,31 @@ export function PersonDialog({
   initialData,
   onSubmit,
 }: PersonDialogProps) {
-  const [formData, setFormData] = useState<PersonFormData>(
-    initialData ?? { name: '', employee_id: '', department: '', card_number: '' }
-  )
-  const [errors, setErrors] = useState<Partial<Record<keyof PersonFormData, string>>>({})
-  const [loading, setLoading] = useState(false)
+  const defaultFormData: PersonFormData = {
+  name: '',
+  employee_id: '',
+  department: '',
+  card_number: '',
+}
+
+const [formData, setFormData] = useState<PersonFormData>(defaultFormData)
+const [errors, setErrors] = useState({} as Record<string, string>)
+const [loading, setLoading] = useState(false)
+
+// Update form when initialData changes (for edit mode)
+useEffect(() => {
+  if (open) {
+    setFormData(initialData ?? defaultFormData)
+    setErrors({} as Record<string, string>)
+  }
+}, [open, initialData])
 
   function handleChange(field: keyof PersonFormData, value: string) {
     setFormData((prev) => ({ ...prev, [field]: value }))
     if (errors[field]) {
-      setErrors((prev) => ({ ...prev, [field]: undefined }))
+      const newErrors = { ...errors }
+      delete newErrors[field]
+      setErrors(newErrors as Record<string, string>)
     }
   }
 
@@ -73,9 +88,9 @@ export function PersonDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="glass-card border-border/50 sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>
+          <DialogTitle className="text-xl font-bold">
             {mode === 'create' ? 'Nueva Persona' : 'Editar Persona'}
           </DialogTitle>
           <DialogDescription>
@@ -88,49 +103,52 @@ export function PersonDialog({
         <div className="space-y-4 py-4">
           {/* Name */}
           <div className="space-y-2">
-            <Label htmlFor="person-name">Nombre *</Label>
+            <Label htmlFor="person-name" className="text-sm font-semibold">Nombre *</Label>
             <Input
               id="person-name"
+              className="input-outlined"
               value={formData.name}
               onChange={(e) => handleChange('name', e.target.value)}
               placeholder="Juan Pérez"
               aria-invalid={!!errors.name}
             />
             {errors.name && (
-              <p className="text-sm text-destructive">{errors.name}</p>
+              <p className="text-xs font-medium text-destructive">{errors.name}</p>
             )}
           </div>
 
-          {/* Employee ID */}
-          <div className="space-y-2">
-            <Label htmlFor="person-employee-id">ID Empleado</Label>
-            <Input
-              id="person-employee-id"
-              value={formData.employee_id}
-              onChange={(e) => handleChange('employee_id', e.target.value)}
-              placeholder="EMP-001"
-            />
-            {errors.employee_id && (
-              <p className="text-sm text-destructive">{errors.employee_id}</p>
-            )}
-          </div>
+          <div className="grid grid-cols-2 gap-4">
+            {/* Employee ID */}
+            <div className="space-y-2">
+              <Label htmlFor="person-employee-id" className="text-sm font-semibold">ID Empleado</Label>
+              <Input
+                id="person-employee-id"
+                className="input-outlined"
+                value={formData.employee_id}
+                onChange={(e) => handleChange('employee_id', e.target.value)}
+                placeholder="EMP-001"
+              />
+            </div>
 
-          {/* Department */}
-          <div className="space-y-2">
-            <Label htmlFor="person-department">Departamento</Label>
-            <Input
-              id="person-department"
-              value={formData.department}
-              onChange={(e) => handleChange('department', e.target.value)}
-              placeholder="Recursos Humanos"
-            />
+            {/* Department */}
+            <div className="space-y-2">
+              <Label htmlFor="person-department" className="text-sm font-semibold">Departamento</Label>
+              <Input
+                id="person-department"
+                className="input-outlined"
+                value={formData.department}
+                onChange={(e) => handleChange('department', e.target.value)}
+                placeholder="Recursos Humanos"
+              />
+            </div>
           </div>
 
           {/* Card Number */}
           <div className="space-y-2">
-            <Label htmlFor="person-card-number">Número de Tarjeta RFID</Label>
+            <Label htmlFor="person-card-number" className="text-sm font-semibold">Número de Tarjeta RFID</Label>
             <Input
               id="person-card-number"
+              className="input-outlined font-mono"
               value={formData.card_number}
               onChange={(e) => handleChange('card_number', e.target.value)}
               placeholder="12345678"
@@ -138,14 +156,19 @@ export function PersonDialog({
           </div>
         </div>
 
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={loading}>
+        <DialogFooter className="gap-2 sm:gap-0">
+          <Button 
+            variant="outline" 
+            onClick={() => onOpenChange(false)} 
+            disabled={loading}
+            className="btn-secondary"
+          >
             Cancelar
           </Button>
           <Button
-            variant="gradient"
             onClick={handleSubmit}
             disabled={loading}
+            className="btn-primary"
           >
             {loading ? (
               <>

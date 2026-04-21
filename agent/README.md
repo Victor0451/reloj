@@ -12,10 +12,10 @@ Node.js agent that runs on the client's local network, communicates with a Hikvi
 [Supabase Cloud (PostgreSQL + Auth + Realtime)]
 ```
 
-The agent runs **continuous sync loops**:
-- **Heartbeat** — every 60s, updates device status in `devices` table
-- **Event Sync** — every 30s, polls access events and inserts into `access_events`
-- **Door Status** — every 10s, monitors door open/closed/alarm state
+The agent runs **continuous sync loops** via the adapter pattern:
+- **Heartbeat** — every 60s, calls `deviceInfo()` through HikvisionAdapter, updates `devices.is_online`
+- **Event Sync** — every 30s, polls access events through adapter, inserts into `access_events`
+- **Person Sync** — bidirectional sync of persons between device and DB via HikvisionAdapter
 - **Command Dispatcher** — every 2s, polls `door_commands` table for pending commands
 
 The agent **does NOT expose any HTTP ports**. It makes outbound-only calls.
@@ -79,16 +79,23 @@ agent/
 │   ├── config.ts             # Env var loading + zod validation
 │   ├── supabase.ts           # Supabase client (service_role)
 │   ├── types.ts              # Shared TypeScript types
-│   ├── isapi/
-│   │   ├── client.ts         # HTTP client with Digest Auth
-│   │   ├── xml.ts            # XML parsing utilities
-│   │   └── methods.ts        # Typed ISAPI methods
-│   ├── sync/
-│   │   ├── registerDevice.ts # Device registration on startup
-│   │   ├── heartbeat.ts      # Heartbeat loop (60s)
-│   │   ├── syncEvents.ts     # Event sync loop (30s)
-│   │   ├── dedup.ts          # Event deduplication
-│   │   └── pollDoorStatus.ts # Door status polling (10s)
+│   ├── adapters/             # Device protocol adapters
+│   │   └── hikvision.adapter.ts  # Hikvision ISAPI adapter implementation
+│   ├── core/                 # Core domain interfaces and adapter manager
+│   │   ├── interfaces.ts     # DevicePort, DataPort, EventPort interfaces
+│   │   ├── adapter-manager.ts # Adapter registry and lifecycle management
+│   │   └── index.ts
+│   ├── sync/                 # Sync loop implementations (adapter pattern)
+│   │   ├── heartbeat-loop.ts    # Heartbeat (60s) — device status via adapter
+│   │   ├── event-sync-loop.ts   # Event sync (30s) — access events via adapter
+│   │   ├── person-sync-loop.ts   # Person sync — bidirectional via adapter
+│   │   ├── registerDevice.ts    # Device registration on startup
+│   │   ├── dedup.ts             # Event deduplication
+│   │   ├── legacy/              # Archived legacy implementations (git mv'd)
+│   │   │   ├── heartbeat.ts     # Original (replaced by heartbeat-loop.ts)
+│   │   │   ├── syncEvents.ts    # Original (replaced by event-sync-loop.ts)
+│   │   │   └── persons.ts       # Original (replaced by person-sync-loop.ts)
+│   │   └── legacy/README.md     # Archive documentation
 │   ├── commands/
 │   │   ├── executeDoorCommand.ts  # Door open/close execution
 │   │   └── dispatcher.ts     # Command dispatcher (2s poll)
@@ -104,6 +111,42 @@ agent/
 ├── tsconfig.json
 └── README.md
 ```
+
+### Adapter Pattern Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                     Sync Loop (e.g., heartbeat-loop.ts)         │
+│  - Orchestrates sync logic                                       │
+│  - Handles timing, retries, error recovery                       │
+└─────────────────────────┬───────────────────────────────────────┘
+                          │ calls
+                          ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                   AdapterManager (core/adapter-manager.ts)      │
+│  - Registry of device adapters                                   │
+│  - Lifecycle management                                          │
+└─────────────────────────┬───────────────────────────────────────┘
+                          │ uses
+                          ▼
+┌─────────────────────────────────────────────────────────────────┐
+│              DevicePort Interface (core/interfaces.ts)         │
+│  - Defines contract: deviceInfo(), getEvents(), putPerson(), etc │
+└──────────┬─────────────────────────────┬───────────────────────┘
+           │ implements                   │ implements
+           ▼                             ▼
+┌──────────────────────┐    ┌────────────────────────────────────┐
+│ HikvisionAdapter     │    │ (future adapters: Dahua, ZKTeco...) │
+│ (adapters/hikvision) │    │                                    │
+│ - ISAPI/HTTPS        │    │                                    │
+│ - Digest Auth        │    │                                    │
+└──────────────────────┘    └────────────────────────────────────┘
+```
+
+**Key Principle**: Sync loops NEVER call ISAPI directly. They call through the adapter interface. This allows:
+- Device protocol changes without modifying sync logic
+- Easy testing via mock adapters
+- Support for multiple device brands
 
 ## Error Handling
 

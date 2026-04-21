@@ -17,10 +17,24 @@ function Card({
       data-size={size}
       data-variant={variant}
       className={cn(
-        "group/card flex flex-col gap-4 overflow-hidden rounded-xl bg-card text-sm text-card-foreground has-data-[slot=card-footer]:pb-0 has-[>img:first-child]:pt-0 data-[size=sm]:gap-3 data-[size=sm]:py-3 data-[size=sm]:has-data-[slot=card-footer]:pb-0 *:[img:first-child]:rounded-t-xl *:[img:last-child]:rounded-b-xl",
+        "group/card flex flex-col gap-4 overflow-hidden rounded-xl bg-card text-sm text-card-foreground",
+        // UI Kit specs: rounded-xl (12-16px), padding-lg (24px)
+        "rounded-xl p-6",
+        // Border subtle para dark mode
+        "ring-1 ring-border/50",
+        // Sombras del UI Kit
+        "shadow-sm",
+        
+        // Size variants
+        "has-data-[slot=card-footer]:pb-0 has-[>img:first-child]:pt-0 data-[size=sm]:gap-3 data-[size=sm]:p-4 data-[size=sm]:py-3 data-[size=sm]:has-data-[slot=card-footer]:pb-0",
+        
+        // Glass variant
         variant === "glass"
           ? "glass-card ring-0"
-          : "ring-1 ring-foreground/10",
+          : "",
+        
+        // Image styling
+        "*:[img:first-child]:rounded-t-xl *:[img:last-child]:rounded-b-xl",
         className
       )}
       {...props}

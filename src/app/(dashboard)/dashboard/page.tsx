@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { EmptyState } from '@/components/ui/empty-state'
-import { Users, Clock, DoorOpen, Activity, Shield, Server } from 'lucide-react'
+import { Users, Clock, DoorOpen, Activity, Shield, Server, Wifi, WifiOff, AlertTriangle } from 'lucide-react'
 import { Suspense } from 'react'
 
 const kpiConfig = [
@@ -22,8 +22,8 @@ const kpiConfig = [
     bgColor: 'bg-blue-500/10',
   },
   {
-    title: 'Dispositivo',
-    description: 'Hikvision DS-K1T320MFWX',
+    title: 'Dispositivos',
+    description: 'Conectividad en tiempo real',
     icon: Server,
   },
   {
@@ -45,17 +45,27 @@ async function KpiCards() {
       .gte('event_time', new Date().toISOString().split('T')[0]),
   ])
 
-  const [{ data: devices }, { data: doorStatus }] = await Promise.all([
-    supabase.from('devices').select('status').limit(1).single(),
-    supabase
-      .from('door_commands')
-      .select('status, action')
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .single(),
-  ])
+  // Fetch all devices for connectivity summary
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: devices } = await supabase
+    .from('devices')
+    .select('status') as any
 
-  const deviceStatus = (devices as { status: string } | null)?.status ?? 'unknown'
+  // Fetch door status
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: doorStatus } = await supabase
+    .from('door_commands')
+    .select('status, action')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .single() as any
+
+  // Calculate device connectivity stats
+  const onlineDevices = devices?.filter((d: any) => d.status === 'online').length || 0
+  const offlineDevices = devices?.filter((d: any) => d.status === 'offline').length || 0
+  const unknownDevices = devices?.filter((d: any) => d.status === 'unknown').length || 0
+  const totalDevices = devices?.length || 0
+
   const lastDoor = doorStatus as { status: string; action: string } | null
   const doorState = lastDoor?.status === 'completed' && lastDoor?.action === 'open' ? 'open' : 'closed'
 
@@ -93,26 +103,40 @@ async function KpiCards() {
         </CardContent>
       </Card>
 
-      {/* Estado del Dispositivo */}
+      {/* Estado de Dispositivos */}
       <Card className="glass-card transition-all duration-300 hover:shadow-premium hover:-translate-y-0.5">
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
           <span className="text-sm font-medium text-muted-foreground">
-            Dispositivo
+            Dispositivos
           </span>
-          <div className={`flex h-9 w-9 items-center justify-center rounded-lg ${deviceStatus === 'online' ? 'bg-emerald-500/10' : 'bg-destructive/10'}`}>
-            <Server className={`h-4 w-4 ${deviceStatus === 'online' ? 'text-emerald-600 dark:text-emerald-400' : 'text-destructive'}`} />
+          <div className={`flex h-9 w-9 items-center justify-center rounded-lg ${
+            onlineDevices === totalDevices ? 'bg-emerald-500/10' : 
+            onlineDevices > 0 ? 'bg-amber-500/10' : 'bg-destructive/10'
+          }`}>
+            <Server className={`h-4 w-4 ${
+              onlineDevices === totalDevices ? 'text-emerald-600 dark:text-emerald-400' : 
+              onlineDevices > 0 ? 'text-amber-500' : 'text-destructive'
+            }`} />
           </div>
         </CardHeader>
         <CardContent>
           <div className="flex items-center gap-2">
-            <span className="text-2xl font-bold capitalize">
-              {deviceStatus === 'online' ? 'Conectado' : deviceStatus === 'offline' ? 'Sin conexión' : 'Sin configurar'}
+            <span className="text-2xl font-bold">
+              {totalDevices > 0 ? `${onlineDevices}/${totalDevices}` : '0'}
             </span>
-            <Badge variant={deviceStatus === 'online' ? 'success' : deviceStatus === 'offline' ? 'destructive' : 'secondary'}>
-              {deviceStatus === 'online' ? 'Online' : 'Offline'}
+            <Badge 
+              variant={
+                totalDevices === 0 ? 'secondary' :
+                onlineDevices === totalDevices ? 'success' : 
+                onlineDevices > 0 ? 'warning' : 'destructive'
+              }
+            >
+              {totalDevices === 0 ? 'Sin dispositivos' :
+               onlineDevices === totalDevices ? 'Todos online' : 
+               onlineDevices > 0 ? `${onlineDevices} online` : 'Todos offline'}
             </Badge>
           </div>
-          <p className="mt-1 text-xs text-muted-foreground">Hikvision DS-K1T320MFWX</p>
+          <p className="mt-1 text-xs text-muted-foreground">Conectividad en tiempo real</p>
         </CardContent>
       </Card>
 

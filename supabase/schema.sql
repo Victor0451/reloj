@@ -226,3 +226,18 @@ CREATE TRIGGER set_updated_at_persons
   BEFORE UPDATE ON persons
   FOR EACH ROW
   EXECUTE FUNCTION public.handle_updated_at();
+
+-- 9. TABLE: sync_config (configuración del cron)
+CREATE TABLE IF NOT EXISTS sync_config (
+  id INTEGER PRIMARY KEY DEFAULT 1,
+  enabled BOOLEAN DEFAULT false,
+  interval_minutes INTEGER DEFAULT 5,
+  options TEXT[] DEFAULT ARRAY['eventos'],
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Insert default config
+INSERT INTO sync_config (id, enabled, interval_minutes, options) 
+VALUES (1, false, 5, ARRAY['eventos'])
+ON CONFLICT (id) DO NOTHING;

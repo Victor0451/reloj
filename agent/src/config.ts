@@ -3,6 +3,7 @@ import { z } from "zod";
 const configSchema = z.object({
   supabaseUrl: z.string().url(),
   supabaseServiceRoleKey: z.string().min(10),
+  supabaseAnonKey: z.string().min(10), // Para operaciones que disparan Realtime
   deviceIp: z.string().ip(),
   devicePort: z.coerce.number().int().positive().default(443),
   deviceUsername: z.string().min(1),
@@ -20,6 +21,7 @@ export function loadConfig(): Config {
   const raw = {
     supabaseUrl: process.env.SUPABASE_URL,
     supabaseServiceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY,
+    supabaseAnonKey: process.env.SUPABASE_ANON_KEY,
     deviceIp: process.env.DEVICE_IP,
     devicePort: process.env.DEVICE_PORT,
     deviceUsername: process.env.DEVICE_USERNAME,

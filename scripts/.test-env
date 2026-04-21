@@ -1,0 +1,4 @@
+# Reloj Biométrico - Diagnóstico de Conexión
+DEVICE_IP=192.168.1.175
+DEVICE_USERNAME=admin
+DEVICE_PASSWORD=tu_password_aqui

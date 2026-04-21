@@ -1,5 +1,5 @@
 import { Suspense } from 'react'
-import { listPersons, createPerson, updatePerson, deletePerson, reactivatePerson } from '@/actions/persons'
+import { listPersons } from '@/actions/persons'
 import {
   Card,
   CardContent,
@@ -8,6 +8,8 @@ import {
 import { Skeleton } from '@/components/ui/skeleton'
 import { Users } from 'lucide-react'
 import { PersonsClient } from './persons-client'
+
+export const dynamic = 'force-dynamic'
 
 export default async function PersonsPage() {
   const initialData = await listPersons({ page: 1 })
@@ -36,13 +38,7 @@ export default async function PersonsPage() {
           </CardHeader>
           <CardContent>
             <Suspense fallback={<PersonsTableSkeleton />}>
-              <PersonsClient
-                initialData={initialData}
-                createPerson={createPerson}
-                updatePerson={updatePerson}
-                deletePerson={deletePerson}
-                reactivatePerson={reactivatePerson}
-              />
+              <PersonsClient initialData={initialData} />
             </Suspense>
           </CardContent>
         </Card>

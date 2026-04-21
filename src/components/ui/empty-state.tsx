@@ -9,7 +9,8 @@ interface EmptyStateProps {
   description: string
   action?: {
     label: string
-    href: string
+    href?: string
+    onClick?: () => void
   }
   className?: string
 }
@@ -37,7 +38,11 @@ export function EmptyState({
       </p>
       {action && (
         <Button variant="gradient" size="sm">
-          <Link href={action.href}>{action.label}</Link>
+          {action.onClick ? (
+            <span onClick={action.onClick}>{action.label}</span>
+          ) : (
+            <Link href={action.href ?? '#'}>{action.label}</Link>
+          )}
         </Button>
       )}
     </div>

@@ -99,6 +99,14 @@ export type Database = {
           status: 'online' | 'offline' | 'unknown'
           last_seen_at: string | null
           location: string | null
+          device_username: string | null
+          device_password_encrypted: string | null
+          sync_status: 'disconnected' | 'connecting' | 'syncing' | 'synced' | 'error'
+          sync_error: string | null
+          sync_last_at: string | null
+          sync_events_count: number
+          last_event_synced_at: string | null
+          updated_at: string
         }
         Insert: {
           id?: string
@@ -110,6 +118,14 @@ export type Database = {
           status?: 'online' | 'offline' | 'unknown'
           last_seen_at?: string | null
           location?: string | null
+          device_username?: string | null
+          device_password_encrypted?: string | null
+          sync_status?: 'disconnected' | 'connecting' | 'syncing' | 'synced' | 'error'
+          sync_error?: string | null
+          sync_last_at?: string | null
+          sync_events_count?: number
+          last_event_synced_at?: string | null
+          updated_at?: string
         }
         Update: {
           id?: string
@@ -121,6 +137,52 @@ export type Database = {
           status?: 'online' | 'offline' | 'unknown'
           last_seen_at?: string | null
           location?: string | null
+          device_username?: string | null
+          device_password_encrypted?: string | null
+          sync_status?: 'disconnected' | 'connecting' | 'syncing' | 'synced' | 'error'
+          sync_error?: string | null
+          sync_last_at?: string | null
+          sync_events_count?: number
+          last_event_synced_at?: string | null
+          updated_at?: string
+        }
+      }
+      sync_logs: {
+        Row: {
+          id: string
+          device_id: string | null
+          sync_type: string
+          status: string
+          events_processed: number | null
+          error_message: string | null
+          started_at: string
+          completed_at: string | null
+          duration_ms: number | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          device_id?: string | null
+          sync_type: string
+          status: string
+          events_processed?: number | null
+          error_message?: string | null
+          started_at?: string
+          completed_at?: string | null
+          duration_ms?: number | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          device_id?: string | null
+          sync_type?: string
+          status?: string
+          events_processed?: number | null
+          error_message?: string | null
+          started_at?: string
+          completed_at?: string | null
+          duration_ms?: number | null
+          created_at?: string
         }
       }
       audit_logs: {

@@ -81,14 +81,15 @@ export async function getAcsEvents(
   const maxResults = options?.maxResults ?? 50;
 
   // ISAPI AcsEvent expects an XML body with search criteria
+  // Note: Values come from trusted sources (config or new Date()) but we sanitize for defense-in-depth
   const requestBody = `<?xml version="1.0" encoding="utf-8"?>
 <searchEvents>
   <searchID>1</searchID>
   <searchResultPosition>0</searchResultPosition>
-  <maxResults>${maxResults}</maxResults>
+  <maxResults>${escapeXml(String(maxResults))}</maxResults>
   <timeSearchType>dateTime</timeSearchType>
-  <searchStartTime>${startTime}</searchStartTime>
-  <searchEndTime>${endTime}</searchEndTime>
+  <searchStartTime>${escapeXml(startTime)}</searchStartTime>
+  <searchEndTime>${escapeXml(endTime)}</searchEndTime>
   <eventTypes>
     <eventType>access</eventType>
   </eventTypes>
@@ -227,4 +228,18 @@ function mapDoorStatus(text: string): DoorStatus["status"] {
   if (lower.includes("close")) return "closed";
   if (lower.includes("alarm")) return "alarm";
   return "unknown";
+}
+
+// ─── XML Sanitization ───────────────────────────────────────────────────
+
+/**
+ * Escape XML special characters to prevent injection.
+ */
+function escapeXml(str: string): string {
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
 }
