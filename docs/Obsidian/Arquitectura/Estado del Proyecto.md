@@ -12,7 +12,7 @@
 | 3 | Gestión de Personas | ✅ Completa | 21-Abr-2026 |
 | 3.5 | Consolidación | ✅ Completa | 21-Abr-2026 |
 | 4 | Eventos y Dashboard | ⏳ Pendiente | - |
-| 5 | Reportes | ⏳ Pendiente | - |
+| 5 | Reportes | ✅ Completa | 21-Abr-2026 |
 | 6 | Control de Puerta | ⏳ Pendiente | - |
 | 7 | QA y Hardening | ⏳ Pendiente | - |
 
