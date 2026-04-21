@@ -36,23 +36,24 @@ export class AdapterManager {
   /**
    * Obtiene o crea un adaptador para un dispositivo
    */
-  async getAdapter(device: DeviceConfig): Promise<IDeviceAdapter> {
+  async getAdapter(device: DeviceConfig, verifyHealth = false): Promise<IDeviceAdapter> {
     const existing = this.adapters.get(device.id);
     if (existing) {
       return existing;
     }
 
-    const adapter = await this.createAdapter(device);
+    const adapter = await this.createAdapter(device, verifyHealth);
     this.adapters.set(device.id, adapter);
     return adapter;
   }
 
   /**
    * Crea un nuevo adaptador según la marca
+   * @param verifyHealth If true, perform blocking health check before returning (blocks if device unreachable)
    */
-  private async createAdapter(device: DeviceConfig): Promise<IDeviceAdapter> {
+  private async createAdapter(device: DeviceConfig, verifyHealth = false): Promise<IDeviceAdapter> {
     const brand = (device.brand || "hikvision").toLowerCase();
-    
+
     log.info("adapterManager", `Creating adapter for brand: ${brand}`, {
       deviceId: device.id,
       serial: device.serialNumber,
@@ -84,19 +85,26 @@ export class AdapterManager {
 
     const adapter = new AdapterClass(config);
 
-    // Verificar que el adaptador funciona
-    const health = await adapter.healthCheck();
-    if (!health.reachable) {
-      throw new Error(
-        `No se puede conectar al dispositivo ${device.serialNumber}: ${health.error}`
-      );
-    }
+    // Optional blocking health check - caller decides when to verify
+    if (verifyHealth) {
+      const health = await adapter.healthCheck();
+      if (!health.reachable) {
+        throw new Error(
+          `No se puede conectar al dispositivo ${device.serialNumber}: ${health.error}`
+        );
+      }
 
-    log.info("adapterManager", `Adapter created successfully`, {
-      deviceId: device.id,
-      brand,
-      latency: health.latency,
-    });
+      log.info("adapterManager", `Adapter created and verified`, {
+        deviceId: device.id,
+        brand,
+        latency: health.latency,
+      });
+    } else {
+      log.info("adapterManager", `Adapter created successfully (no health check)`, {
+        deviceId: device.id,
+        brand,
+      });
+    }
 
     return adapter;
   }

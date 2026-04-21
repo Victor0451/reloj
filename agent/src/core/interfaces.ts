@@ -177,6 +177,8 @@ export interface AdapterConfig {
   timeout?: number;
   /** Serial del dispositivo (para logging) */
   serialNumber?: string;
+  /** Aceptar certificados SSL auto-firmados (default true) */
+  rejectUnauthorized?: boolean;
 }
 
 // ─── Adapter Registry ────────────────────────────────────────────────────────

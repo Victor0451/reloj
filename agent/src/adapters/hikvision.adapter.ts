@@ -67,7 +67,8 @@ async function digestRequest(
   password: string,
   method: string = "GET",
   body?: string,
-  contentType: string = "application/xml; charset=utf-8"
+  contentType: string = "application/xml; charset=utf-8",
+  rejectUnauthorized: boolean = true
 ): Promise<{ status: number; body: string }> {
   return new Promise((resolve, reject) => {
     const urlObj = new URL(url);
@@ -78,7 +79,7 @@ async function digestRequest(
         "Content-Type": contentType,
         "User-Agent": "Hikvision-ISAPI-Adapter/1.0",
       };
-      
+
       if (authHeader) {
         headers["Authorization"] = authHeader;
       }
@@ -89,7 +90,7 @@ async function digestRequest(
         path: urlObj.pathname + urlObj.search,
         method,
         headers,
-        rejectUnauthorized: false,
+        rejectUnauthorized,
       };
 
       const req = (isHttps ? https : http).request(options, (res) => {
@@ -140,6 +141,9 @@ function generateDigestAuth(
   const cnonce = crypto.randomBytes(16).toString("hex");
   const nc = "00000001";
 
+  // NOTE: MD5 is required by Hikvision ISAPI legacy digest auth scheme.
+  // This is cryptographically weak but unavoidable for compatibility with
+  // older Hikvision firmware. Acceptable risk for internal network use only.
   const ha1 = crypto.createHash("md5").update(`${username}:${realm}:${password}`).digest("hex");
   const ha2 = crypto.createHash("md5").update(`${method}:${uri}`).digest("hex");
   const response = crypto.createHash("md5").update(`${ha1}:${nonce}:${nc}:${cnonce}:${qop}:${ha2}`).digest("hex");
@@ -164,6 +168,8 @@ export class HikvisionAdapter implements IDeviceAdapter {
       password: config.password,
       timeout: config.timeout ?? 10000,
       serialNumber: config.serialNumber ?? config.ip,
+      // SSL: default to true (secure), only disable for self-signed certs
+      rejectUnauthorized: config.rejectUnauthorized ?? true,
     };
     this.baseUrl = `https://${this.config.ip}:${this.config.port}`;
   }
@@ -174,7 +180,11 @@ export class HikvisionAdapter implements IDeviceAdapter {
     const response = await digestRequest(
       `${this.baseUrl}/ISAPI/System/deviceInfo`,
       this.config.username,
-      this.config.password
+      this.config.password,
+      "GET",
+      undefined,
+      "application/xml; charset=utf-8",
+      this.config.rejectUnauthorized
     );
 
     if (response.status !== 200) {
@@ -210,7 +220,10 @@ export class HikvisionAdapter implements IDeviceAdapter {
         `${this.baseUrl}/ISAPI/AccessControl/UserInfo`,
         this.config.username,
         this.config.password,
-        "GET"
+        "GET",
+        undefined,
+        "application/xml; charset=utf-8",
+        this.config.rejectUnauthorized
       );
 
       // Si el endpoint no existe, intentar Alternative
@@ -225,7 +238,9 @@ export class HikvisionAdapter implements IDeviceAdapter {
   <searchID>1</searchID>
   <searchResultPosition>0</searchResultPosition>
   <maxResults>500</maxResults>
-</SearchInfo>`
+</SearchInfo>`,
+          "application/xml; charset=utf-8",
+          this.config.rejectUnauthorized
         );
 
         if (altResponse.status !== 200) {
@@ -298,7 +313,8 @@ export class HikvisionAdapter implements IDeviceAdapter {
         this.config.password,
         "POST",
         jsonBody,
-        "application/json"
+        "application/json",
+        this.config.rejectUnauthorized
       );
 
       if (jsonResponse.status === 200) {
@@ -322,7 +338,9 @@ export class HikvisionAdapter implements IDeviceAdapter {
         this.config.username,
         this.config.password,
         "POST",
-        xmlBody
+        xmlBody,
+        "application/xml; charset=utf-8",
+        this.config.rejectUnauthorized
       );
 
       if (xmlResponse.status === 404 || xmlResponse.status === 500) {
@@ -409,7 +427,7 @@ export class HikvisionAdapter implements IDeviceAdapter {
     try {
       const requestBody = `<?xml version="1.0" encoding="utf-8"?>
 <UserInfo version="2.0" xmlns="http://www.isapi.org/ver20/XMLSchema">
-  <employeeNo>${employeeNo}</employeeNo>
+  <employeeNo>${this.escapeXml(employeeNo)}</employeeNo>
   <name>${this.escapeXml(person.name)}</name>
   <userType>normal</userType>
   <Valid>
@@ -422,7 +440,9 @@ export class HikvisionAdapter implements IDeviceAdapter {
         this.config.username,
         this.config.password,
         "PUT",
-        requestBody
+        requestBody,
+        "application/xml; charset=utf-8",
+        this.config.rejectUnauthorized
       );
 
       if (response.status !== 200 && response.status !== 201) {
@@ -446,10 +466,13 @@ export class HikvisionAdapter implements IDeviceAdapter {
   async deletePerson(employeeNo: string): Promise<void> {
     try {
       const response = await digestRequest(
-        `${this.baseUrl}/ISAPI/AccessControl/UserInfo/1?employeeNo=${employeeNo}`,
+        `${this.baseUrl}/ISAPI/AccessControl/UserInfo/1?employeeNo=${encodeURIComponent(employeeNo)}`,
         this.config.username,
         this.config.password,
-        "DELETE"
+        "DELETE",
+        undefined,
+        "application/xml; charset=utf-8",
+        this.config.rejectUnauthorized
       );
 
       // 404 = persona no existe, no es error
@@ -473,7 +496,11 @@ export class HikvisionAdapter implements IDeviceAdapter {
       const response = await digestRequest(
         `${this.baseUrl}/ISAPI/AccessControl/UserInfo/1?format=0`,
         this.config.username,
-        this.config.password
+        this.config.password,
+        "GET",
+        undefined,
+        "application/xml; charset=utf-8",
+        this.config.rejectUnauthorized
       );
 
       // Endpoint no soportado
@@ -514,7 +541,11 @@ export class HikvisionAdapter implements IDeviceAdapter {
     const response = await digestRequest(
       `${this.baseUrl}/ISAPI/AccessControl/Door/status/${doorNo}`,
       this.config.username,
-      this.config.password
+      this.config.password,
+      "GET",
+      undefined,
+      "application/xml; charset=utf-8",
+      this.config.rejectUnauthorized
     );
 
     const xml = parseXmlResponse(response.body);
@@ -556,7 +587,9 @@ export class HikvisionAdapter implements IDeviceAdapter {
       this.config.username,
       this.config.password,
       "PUT",
-      requestBody
+      requestBody,
+      "application/xml; charset=utf-8",
+      this.config.rejectUnauthorized
     );
 
     if (response.status !== 200) {
@@ -573,7 +606,11 @@ export class HikvisionAdapter implements IDeviceAdapter {
       const response = await digestRequest(
         `${this.baseUrl}/ISAPI/System/deviceInfo`,
         this.config.username,
-        this.config.password
+        this.config.password,
+        "GET",
+        undefined,
+        "application/xml; charset=utf-8",
+        this.config.rejectUnauthorized
       );
 
       return {

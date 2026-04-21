@@ -26,12 +26,12 @@ export async function createPersonOnDevice(
 ): Promise<{ success: boolean; statusCode?: string }> {
   const xmlBody = `<?xml version="1.0" encoding="utf-8"?>
 <UserInfo>
-  <employeeNo>${person.employeeNo}</employeeNo>
+  <employeeNo>${escapeXml(person.employeeNo)}</employeeNo>
   <name>${escapeXml(person.name)}</name>
   ${person.department ? `<department>${escapeXml(person.department)}</department>` : ''}
   <doorRight>1</doorRight>
   <userType>normal</userType>
-  ${person.cardNo ? `<cardList><card><cardNo>${person.cardNo}</cardNo></card></cardList>` : ''}
+  ${person.cardNo ? `<cardList><card><cardNo>${escapeXml(person.cardNo)}</cardNo></card></cardList>` : ''}
 </UserInfo>`
 
   try {
@@ -65,12 +65,12 @@ export async function updatePersonOnDevice(
 ): Promise<{ success: boolean; statusCode?: string }> {
   const xmlBody = `<?xml version="1.0" encoding="utf-8"?>
 <UserInfo>
-  <employeeNo>${person.employeeNo}</employeeNo>
+  <employeeNo>${escapeXml(person.employeeNo)}</employeeNo>
   <name>${escapeXml(person.name)}</name>
   ${person.department ? `<department>${escapeXml(person.department)}</department>` : ''}
   <doorRight>1</doorRight>
   <userType>normal</userType>
-  ${person.cardNo ? `<cardList><card><cardNo>${person.cardNo}</cardNo></card></cardList>` : ''}
+  ${person.cardNo ? `<cardList><card><cardNo>${escapeXml(person.cardNo)}</cardNo></card></cardList>` : ''}
 </UserInfo>`
 
   try {
@@ -100,7 +100,7 @@ export async function deletePersonFromDevice(
   const xmlBody = `<?xml version="1.0" encoding="utf-8"?>
 <UserInfoDelCond>
   <EmployeeNoList>
-    <employeeNo>${employeeNo}</employeeNo>
+    <employeeNo>${escapeXml(employeeNo)}</employeeNo>
   </EmployeeNoList>
 </UserInfoDelCond>`
 
@@ -131,7 +131,7 @@ export async function searchPersonOnDevice(
   const searchNo = employeeNo ?? ''
   const xmlBody = `<?xml version="1.0" encoding="utf-8"?>
 <UserInfoSearchCond>
-  <employeeNo>${searchNo}</employeeNo>
+  <employeeNo>${escapeXml(searchNo)}</employeeNo>
 </UserInfoSearchCond>`
 
   try {
@@ -179,7 +179,7 @@ export async function uploadFaceData(
 ): Promise<{ success: boolean; faceId?: string }> {
   const xmlBody = `<?xml version="1.0" encoding="utf-8"?>
 <FaceDataRecord>
-  <employeeNo>${employeeNo}</employeeNo>
+  <employeeNo>${escapeXml(employeeNo)}</employeeNo>
   <faceImgType>jpg</faceImgType>
   <FaceDataBase64>${faceData}</FaceDataBase64>
 </FaceDataRecord>`

@@ -98,9 +98,15 @@ async function syncPendingPersons(
 
   log.info("personSync", `Syncing ${pendingPersons.length} pending person(s) to device ${deviceId}`);
 
+  // Fetch ALL device persons ONCE per cycle to avoid N+1 queries
+  const existingPersons = await adapter.getPersons();
+  const existingEmployeeNos = new Set(
+    existingPersons.map((p) => p.employeeNo).filter((no): no is string => !!no)
+  );
+
   for (const person of pendingPersons as PendingPerson[]) {
     try {
-      await syncSinglePerson(adapter, supabase, person);
+      await syncSinglePerson(adapter, supabase, person, existingEmployeeNos);
     } catch (err) {
       log.error("personSync", `Failed to sync person ${person.id}`, {
         err: err as Error,
@@ -113,17 +119,19 @@ async function syncPendingPersons(
 async function syncSinglePerson(
   adapter: Awaited<ReturnType<AdapterManager["getAdapter"]>>,
   supabase: SupabaseClient,
-  person: PendingPerson
+  person: PendingPerson,
+  existingEmployeeNos?: Set<string>
 ): Promise<void> {
   const employeeNo = person.employee_id ?? `AUTO_${person.id.slice(0, 8)}`;
 
   log.info("personSync", `Syncing person ${person.id} (${person.name})`);
 
-  // Verificar si ya existe en el dispositivo
-  const existingPersons = await adapter.getPersons();
-  const existsOnDevice = existingPersons.some(
-    (p) => p.employeeNo === employeeNo || p.id === employeeNo
-  );
+  // Use pre-fetched set if provided, otherwise fetch (N+1 fallback)
+  const existsOnDevice = existingEmployeeNos
+    ? existingEmployeeNos.has(employeeNo)
+    : (await adapter.getPersons()).some(
+        (p) => p.employeeNo === employeeNo || p.id === employeeNo
+      );
 
   const personData: Person = {
     id: person.id,
@@ -251,8 +259,14 @@ export function startSingleDevicePersonSync(
       if (pendingPersons && pendingPersons.length > 0) {
         log.info("personSync", `Syncing ${pendingPersons.length} pending person(s)`, { deviceId, brand: deviceBrand });
 
+        // Fetch ALL device persons ONCE per cycle to avoid N+1 queries
+        const existingPersons = await adapter.getPersons();
+        const existingEmployeeNos = new Set(
+          existingPersons.map((p) => p.employeeNo).filter((no): no is string => !!no)
+        );
+
         for (const person of pendingPersons as PendingPerson[]) {
-          await syncSinglePerson(adapter, supabase, person);
+          await syncSinglePerson(adapter, supabase, person, existingEmployeeNos);
         }
       }
 

@@ -45,7 +45,8 @@ async function digestFetch(
   password: string,
   method: "GET" | "PUT" | "POST" = "GET",
   body?: string,
-  contentType: string = "application/xml; charset=utf-8"
+  contentType: string = "application/xml; charset=utf-8",
+  rejectUnauthorized: boolean = true
 ): Promise<{ status: number; body: string; headers: Record<string, string | string[] | undefined> }> {
   return new Promise((resolve, reject) => {
     const urlObj = new URL(url);
@@ -60,7 +61,7 @@ async function digestFetch(
         "Content-Type": contentType,
         "User-Agent": "Node.js ISAPI Client",
       },
-      rejectUnauthorized: false, // Accept self-signed certs
+      rejectUnauthorized,
     };
 
     const req = (isHttps ? https : http).request(options, (res) => {
@@ -172,7 +173,8 @@ export async function isapiRequest<T = unknown>(
   path: string,
   method: "GET" | "PUT" | "POST" = "GET",
   body?: string,
-  contentType: string = "application/xml; charset=utf-8"
+  contentType: string = "application/xml; charset=utf-8",
+  rejectUnauthorized: boolean = true
 ): Promise<IsapiResponse<T>> {
   const url = `${buildBaseUrl(config)}${path}`;
 
@@ -182,7 +184,8 @@ export async function isapiRequest<T = unknown>(
     config.devicePassword,
     method,
     body,
-    contentType
+    contentType,
+    rejectUnauthorized
   );
 
   if (response.status >= 400) {
