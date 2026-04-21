@@ -4,19 +4,11 @@ import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { EmptyState } from '@/components/ui/empty-state'
-import { Button } from '@/components/ui/button'
 import { Users, Clock, DoorOpen, Activity, Shield, Server, ArrowRight } from 'lucide-react'
 import { Suspense } from 'react'
 import Link from 'next/link'
 
-type EventWithPerson = {
-  id: string
-  employee_id: string | null
-  event_time: string
-  event_type: string
-  verify_mode: string | null
-  person_name: string | null
-}
+import type { EventWithPerson } from '@/types/event.types'
 
 const eventTypeLabels: Record<string, string> = {
   '0': 'Entrada',
@@ -79,7 +71,11 @@ async function KpiCards() {
     supabase
       .from('access_events')
       .select('*', { count: 'exact', head: true })
-      .gte('event_time', new Date().toISOString().split('T')[0]),
+      .gte('event_time', (() => {
+        const now = new Date()
+        const localDate = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+        return localDate.toISOString()
+      })()),
   ])
 
   // Fetch all devices for connectivity summary
@@ -252,7 +248,7 @@ export default async function DashboardPage() {
   }
 
   // Attach person_name to events
-  const recentEvents: EventWithPerson[] = (rawEvents ?? []).map((e: {
+  const recentEvents = (rawEvents ?? []).map((e: {
     id: string
     employee_id: string | null
     event_time: string
@@ -340,12 +336,13 @@ export default async function DashboardPage() {
                 ))}
                 {/* View All Link */}
                 <div className="flex justify-center pt-3">
-                  <Button variant="ghost" size="sm" asChild className="text-muted-foreground hover:text-primary">
-                    <Link href="/dashboard/events">
-                      Ver todos
-                      <ArrowRight className="ml-1 h-3 w-3" />
-                    </Link>
-                  </Button>
+                  <Link
+                    href="/dashboard/events"
+                    className="inline-flex items-center justify-center rounded-[24px] h-7 gap-1 px-4 text-[0.8rem] font-semibold text-muted-foreground hover:text-primary transition-colors"
+                  >
+                    Ver todos
+                    <ArrowRight className="ml-1 h-3 w-3" />
+                  </Link>
                 </div>
               </div>
             ) : (

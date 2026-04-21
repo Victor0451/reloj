@@ -4,6 +4,12 @@ import { createAdminClient } from '@/lib/supabase/admin'
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────────
 
+import type { EventWithPerson as EventWithPersonBase } from '@/types/event.types'
+import type { Database } from '@/types/database.types'
+
+// Re-export for backwards compatibility (used by events-table.tsx)
+export type EventWithPerson = EventWithPersonBase
+
 export interface EventFilters {
   dateStart?: string
   dateEnd?: string
@@ -11,26 +17,12 @@ export interface EventFilters {
   employeeId?: string
 }
 
-export interface EventWithPerson {
-  id: string
-  device_serial: string | null
-  person_id: string | null
-  employee_id: string | null
-  event_time: string
-  major: number | null
-  minor: number | null
-  event_type: string
-  verify_mode: string | null
-  raw_payload: unknown | null
-  synced_at: string
-  person_name: string | null
-}
-
 export interface PaginatedEvents {
   events: EventWithPerson[]
   nextCursor: string | null
   hasMore: boolean
   totalCount: number
+  error?: string
 }
 
 export interface EventCsvRow {
@@ -88,14 +80,14 @@ export async function listEvents(
     countQuery = countQuery.eq('event_type', filters.eventType)
   }
   if (filters.employeeId) {
-    countQuery = countQuery.eq('employee_id', filters.employeeId)
+    countQuery = countQuery.ilike('employee_id', `%${filters.employeeId}%`)
   }
 
   const { count, error: countError } = await countQuery
 
   if (countError) {
     console.error('listEvents count error:', countError)
-    return { events: [], nextCursor: null, hasMore: false, totalCount: 0 }
+    return { events: [], nextCursor: null, hasMore: false, totalCount: 0, error: countError.message }
   }
 
   // Step 2: Main query with cursor pagination
@@ -117,23 +109,29 @@ export async function listEvents(
     query = query.eq('event_type', filters.eventType)
   }
   if (filters.employeeId) {
-    query = query.eq('employee_id', filters.employeeId)
+    query = query.ilike('employee_id', `%${filters.employeeId}%`)
   }
 
-  // Apply cursor (event_time < cursor)
+  // Apply compound cursor (event_time < cursor AND id < idCursor)
   if (cursor) {
-    query = query.lt('event_time', cursor)
+    const [cursorTime, cursorId] = cursor.split('::')
+    if (cursorTime && cursorId) {
+      query = query.or(`event_time.lt.${cursorTime},and(event_time.eq.${cursorTime},id.lt.${cursorId})`)
+    } else {
+      query = query.lt('event_time', cursor)
+    }
   }
 
   query = query
     .order('event_time', { ascending: false })
+    .order('id', { ascending: false })
     .limit(PAGE_SIZE + 1)
 
   const { data, error } = await query
 
   if (error) {
     console.error('listEvents query error:', error)
-    return { events: [], nextCursor: null, hasMore: false, totalCount: 0 }
+    return { events: [], nextCursor: null, hasMore: false, totalCount: 0, error: error.message }
   }
 
   const rows = (data ?? []) as EventWithPerson[]
@@ -168,7 +166,7 @@ export async function listEvents(
 
   const nextCursor =
     hasMore && pageRows.length > 0
-      ? pageRows[pageRows.length - 1].event_time
+      ? `${pageRows[pageRows.length - 1].event_time}::${pageRows[pageRows.length - 1].id}`
       : null
 
   return {
@@ -301,7 +299,8 @@ export async function getEventTypes(): Promise<string[]> {
 
   const result = await admin
     .from('access_events')
-    .select('event_type') as { data: Array<{ event_type: string }>; error: { message: string } | null }
+    .select('event_type')
+    .limit(1000) as { data: Array<{ event_type: string }>; error: { message: string } | null }
 
   if (result.error) {
     console.error('getEventTypes error:', result.error)
@@ -313,5 +312,9 @@ export async function getEventTypes(): Promise<string[]> {
     if (row.event_type) typeSet.add(row.event_type)
   }
 
-  return Array.from(typeSet).sort()
+  const types = Array.from(typeSet).sort()
+  if (typeSet.size >= 1000) {
+    console.warn('getEventTypes: reached 1000 row limit, results may be incomplete')
+  }
+  return types
 }

@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { useDebouncedCallback } from 'use-debounce'
 import { createClient } from '@/lib/supabase/client'
 import { listEvents, getEventTypes, type EventFilters } from '@/actions/events'
-import type { EventWithPerson } from '@/actions/events'
+import type { EventWithPerson } from '@/types/event.types'
 import {
   Table,
   TableBody,
@@ -149,6 +149,12 @@ export default function EventsTable({
         person_name: newEvent.person_name ?? null,
         event_type: newEvent.event_type ?? '0',
         verify_mode: newEvent.verify_mode ?? null,
+        device_serial: null,
+        person_id: null,
+        major: null,
+        minor: null,
+        synced_at: new Date().toISOString(),
+        raw_payload: null,
       }
 
       // Add new event to top of list
@@ -228,6 +234,11 @@ export default function EventsTable({
 
   // Debounced employee search
   const debouncedFetch = useDebouncedCallback(() => {
+    // Validate date range
+    if (dateFrom && dateTo && dateFrom > dateTo) {
+      toast.error('Rango de fechas inválido')
+      return
+    }
     // Reset pagination on filter change
     setCursorHistory([])
     setPrevCursor(null)
@@ -328,8 +339,9 @@ export default function EventsTable({
   const hasActiveFilters = dateFrom || dateTo || eventType || employeeSearch
 
   // Calculate showing range
-  const showingFrom = totalCount > 0 ? 1 : 0
-  const showingTo = events.length
+  const startItem = totalCount > 0 ? cursorHistory.length * 50 + 1 : 0
+  const showingFrom = startItem
+  const showingTo = cursorHistory.length * 50 + events.length
 
   return (
     <div className="space-y-6">
@@ -388,7 +400,7 @@ export default function EventsTable({
         <div className="relative flex-1 max-w-sm">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
-            placeholder="Buscar por ID empleado..."
+            placeholder="ID de empleado..."
             value={employeeSearch}
             onChange={(e) => handleEmployeeSearchChange(e.target.value)}
             className="pl-10 h-10"
