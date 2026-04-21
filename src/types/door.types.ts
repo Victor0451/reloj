@@ -1,5 +1,5 @@
-export type DoorAction = 'open' | 'close' | 'alwaysOpen' | 'alwaysClose';
-export type DoorCommandStatus = 'pending' | 'done' | 'failed';
+export type DoorAction = 'open' | 'close' | 'alwaysopen' | 'alwaysclose';
+export type DoorCommandStatus = 'pending' | 'completed' | 'failed';
 
 export interface DoorCommand {
   id: string;

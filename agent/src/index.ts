@@ -13,6 +13,7 @@ import * as log from "./utils/logger";
 import { startSingleDeviceHeartbeat } from "./sync/heartbeat-loop";
 import { startSingleDeviceEventSync } from "./sync/event-sync-loop";
 import { startSingleDevicePersonSync } from "./sync/person-sync-loop";
+import { startCommandDispatcher } from "./commands/dispatcher";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -178,6 +179,14 @@ async function main() {
       }
     );
     registerCleanup(stopPersonSync);
+
+    // ── Command Dispatcher Loop ──────────────────────────────────
+    const stopCommandDispatcher = startCommandDispatcher(
+      config,
+      supabaseRealtime,
+      deviceSerial
+    );
+    registerCleanup(stopCommandDispatcher);
   }
 
   log.info("agent", "All sync loops started", {

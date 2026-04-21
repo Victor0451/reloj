@@ -13,7 +13,7 @@
 | 3.5 | Consolidación | ✅ Completa | 21-Abr-2026 |
 | 4 | Eventos y Dashboard | ⏳ Pendiente | - |
 | 5 | Reportes | ✅ Completa | 21-Abr-2026 |
-| 6 | Control de Puerta | ⏳ Pendiente | - |
+| 6 | Control de Puerta | ✅ Completa | 21-Abr-2026 |
 | 7 | QA y Hardening | ⏳ Pendiente | - |
 
 ## Detalle de Fase 2.3: Sync Loops
@@ -77,10 +77,42 @@ const adapter = adapterManager.getAdapter('hikvision');
 - [x] Legacy files git mv'd to `legacy/` ✓
 - [x] Grep confirms zero legacy imports ✓
 
+## Detalle de Fase 6: Control de Puerta
+
+### Bug Crítico Arreglado
+
+**Problema**: El `CommandDispatcher` existía en el código pero **nunca fue conectado** en el startup del agente. El dispatcher polling estaba implementado pero la función `startCommandDispatcher()` nunca era llamada.
+
+**Impacto**: Los comandos de puerta nunca se ejecutaban porque el agente no iniciaba el polling.
+
+**Solución**: Se agregó el llamado a `startCommandDispatcher()` en el loop de inicialización de dispositivos en `agent/src/index.ts`.
+
+### Cambios Realizados
+
+1. **Fase 1 - Wire Dispatcher**: Import y llamado de `startCommandDispatcher` por cada dispositivo
+2. **Fase 2 - Tipo DoorAction**: Estandarización a minúsculas (`alwaysopen`/`alwaysclose`)
+3. **Fase 3 - E2E Flow**: Flujo completo verificado: INSERT → poll → execute → UPDATE → realtime → toast
+
+### Archivos Modificados
+
+| Archivo | Cambio |
+|---------|--------|
+| `agent/src/index.ts` | Wired dispatcher: líneas 184-189 |
+| `src/types/door.types.ts` | DoorAction lowercase, Status = completed |
+| `src/components/door/door-control-card.tsx` | Status check: 'done' → 'completed' |
+
+### Verification Checklist Pasado
+
+- [x] Dispatcher wired: `index.ts:184-189` ✓
+- [x] DoorAction types normalized: lowercase ✓
+- [x] Status transitions correct: pending → completed/failed ✓
+- [x] Realtime subscription active in frontend ✓
+- [x] Toast notifications on completion/error ✓
+
 ## Próximos Pasos
 
 1. **Fase 4**: Implementar listado de eventos en tiempo real + dashboard KPIs
-2. Commit de Fase 3.5 cuando esté listo
+2. Commit de Fase 6 cuando esté listo
 
 ---
 

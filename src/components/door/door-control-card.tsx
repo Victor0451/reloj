@@ -51,7 +51,7 @@ export function DoorControlCard({ device }: DoorControlCardProps) {
             const updatedCmd = payload.new as DoorCommand
             if (updatedCmd.status !== 'pending') {
               setIsProcessing(false)
-              if (updatedCmd.status === 'done') toast.success(`Puerta de "${device.name}" abierta`)
+              if (updatedCmd.status === 'completed') toast.success(`Puerta de "${device.name}" abierta`)
               if (updatedCmd.status === 'failed') toast.error(`Error: ${updatedCmd.error_message}`)
             }
           }
@@ -145,7 +145,7 @@ export function DoorControlCard({ device }: DoorControlCardProps) {
               recentCommands.map((cmd) => (
                 <div key={cmd.id} className="flex items-center justify-between rounded-lg bg-muted/20 px-3 py-2 border border-border/30 text-[11px]">
                   <div className="flex items-center gap-2">
-                    {cmd.status === 'done' ? (
+                    {cmd.status === 'completed' ? (
                       <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
                     ) : cmd.status === 'failed' ? (
                       <AlertCircle className="h-3.5 w-3.5 text-destructive" />
