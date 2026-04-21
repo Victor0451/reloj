@@ -2,11 +2,17 @@ import https from 'node:https'
 import crypto from 'node:crypto'
 import { URL } from 'node:url'
 
+const host = process.env.DEVICE_IP || '192.168.1.175'
+const username = process.env.DEVICE_USERNAME || 'admin'
+const password = process.env.DEVICE_PASSWORD
+
+if (!password) {
+  console.error('❌ DEVICE_PASSWORD environment variable is required')
+  console.error('   Usage: DEVICE_PASSWORD=mipass npx tsx scripts/test-event-sub.ts')
+  process.exit(1)
+}
+
 async function digestRequest(url: string, method = 'GET', body = null) {
-  return new Promise((resolve, reject) => {
-    const host = '192.168.1.175'
-    const username = 'admin'
-    const password = 'evol@2601'
     
     const parsedUrl = new URL(url)
     const path = parsedUrl.pathname + (parsedUrl.search || '')

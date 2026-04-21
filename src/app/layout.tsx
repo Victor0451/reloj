@@ -4,6 +4,7 @@ import "./globals.css";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider } from "@/components/layout/theme-provider";
+import { ErrorBoundary } from "@/components/ui/error-boundary";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -39,7 +40,9 @@ export default function RootLayout({
           disableTransitionOnChange
         >
           <TooltipProvider>
-            {children}
+            <ErrorBoundary>
+              {children}
+            </ErrorBoundary>
             <Toaster />
           </TooltipProvider>
         </ThemeProvider>

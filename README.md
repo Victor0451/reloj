@@ -4,9 +4,10 @@ Sistema web para gestionar terminales biométricos Hikvision DS-K1T320MFWX (reco
 
 ## 🚀 Tecnologías
 
-- **Frontend**: Next.js 16 (App Router) + TypeScript
+- **Frontend**: Next.js 16.2.3 (App Router) + TypeScript + React 19.2.4
 - **UI**: shadcn/ui + Tailwind CSS v4
 - **Base de Datos**: Supabase (PostgreSQL + Realtime + Auth)
+- **Agent Bridge**: Node.js (multi-brand adapter architecture)
 - **Deploy**: Vercel (frontend) + PM2 (agente local)
 
 ## 📋 Requisitos
@@ -14,6 +15,7 @@ Sistema web para gestionar terminales biométricos Hikvision DS-K1T320MFWX (reco
 - Node.js 20+
 - npm
 - Cuenta en Supabase
+- Device password (configurado en variables de entorno)
 
 ## 🛠️ Instalación
 
@@ -53,7 +55,7 @@ Sistema web para gestionar terminales biométricos Hikvision DS-K1T320MFWX (reco
 
 ```
 ├── src/
-│   ├── actions/              # Server Actions (auth, etc.)
+│   ├── actions/              # Server Actions (auth, devices, persons, events, sync, door, reports)
 │   ├── app/
 │   │   ├── (auth)/          # Rutas de autenticación
 │   │   │   ├── login/
@@ -64,27 +66,98 @@ Sistema web para gestionar terminales biométricos Hikvision DS-K1T320MFWX (reco
 │   │   │       ├── events/
 │   │   │       ├── reports/
 │   │   │       ├── door-control/
+│   │   │       ├── devices/
 │   │   │       ├── device-status/
 │   │   │       ├── audit/
+│   │   │       ├── connectivity/
+│   │   │       ├── sync-status/
 │   │   │       └── settings/
-│   │   ├── layout.tsx
+│   │   ├── api/             # API routes
+│   │   │   ├── devices/refresh/
+│   │   │   └── check-connectivity/
+│   │   ├── layout.tsx       # Root layout con ErrorBoundary
 │   │   └── page.tsx
 │   ├── components/
-│   │   ├── auth/            # Componentes de autenticación
-│   │   ├── layout/          # Sidebar y layouts
-│   │   └── ui/              # Componentes shadcn/ui
+│   │   ├── auth/            # Login/Signup forms
+│   │   ├── layout/          # Sidebar, theme provider
+│   │   ├── devices/         # Device list, cards, sync dashboard
+│   │   ├── persons/         # Persons table, dialog, photo upload, CSV import
+│   │   ├── events/          # Events table
+│   │   ├── reports/         # Report preview
+│   │   ├── door/            # Door control card
+│   │   └── ui/              # shadcn/ui components
 │   ├── lib/
-│   │   └── supabase/        # Clientes de Supabase
-│   │       ├── client.ts    # Cliente browser
-│   │       └── server.ts    # Cliente server
+│   │   ├── supabase/        # Clientes Supabase (client, server, admin)
+│   │   ├── device-connectivity.ts
+│   │   ├── utils.ts
+│   │   ├── cron-jobs.ts
+│   │   └── test-realtime.js
 │   ├── types/               # Tipos TypeScript
-│   │   └── database.types.ts
+│   │   ├── database.types.ts
+│   │   ├── device.types.ts
+│   │   ├── person.types.ts
+│   │   ├── event.types.ts
+│   │   ├── door.types.ts
+│   │   └── report.types.ts
+│   ├── hooks/               # Custom hooks
+│   │   └── use-mobile.ts
 │   └── middleware.ts        # Middleware de autenticación
+├── scripts/                 # Testing scripts para dispositivos
+│   ├── test-event-sub.ts
+│   ├── test-event-variant.ts
+│   └── test-acs-endpoints.ts
+├── agent/                   # Agent Bridge (Node.js)
+│   └── src/
+│       ├── index.ts
+│       ├── adapters/
+│       │   ├── hikvision/
+│       │   │   └── HikvisionAdapter.ts
+│       │   └── index.ts     # AdapterManager + IDeviceAdapter
+│       └── loops/
+│           ├── heartbeat-loop.ts
+│           ├── event-sync-loop.ts
+│           └── person-sync-loop.ts
 ├── supabase/
 │   └── schema.sql           # Esquema de base de datos
 ├── docs/                    # Documentación del proyecto
-└── .env.local               # Variables de entorno (no trackeado)
+└── .env.example             # Template de variables de entorno (no trackeado)
 ```
+
+## ▶️ Cómo Ejecutar
+
+### Frontend
+
+```bash
+# Instalar dependencias
+npm install
+
+# Configurar variables de entorno
+cp .env.example .env.local
+# Editar .env.local con tus valores de Supabase
+
+# Iniciar servidor de desarrollo
+npm run dev
+```
+
+### Agent Bridge
+
+```bash
+cd agent
+
+# Instalar dependencias del agente
+npm install
+
+# Configurar variables de entorno
+cp ../.env.example .env
+# Editar .env con DEVICE_PASSWORD y SUPABASE_URL
+
+# Iniciar el agente
+npm start
+# o con PM2 para producción
+pm2 start dist/index.js --name reloj-agent
+```
+
+> El agente se conecta al dispositivo Hikvision via ISAPI y sincroniza eventos/personas con Supabase.
 
 ## 🔐 Roles de Usuario
 
@@ -113,14 +186,17 @@ Sistema web para gestionar terminales biométricos Hikvision DS-K1T320MFWX (reco
                │ HTTPS
 ┌──────────────▼──────────────────┐
 │    Next.js App (Vercel)         │
+│    + React Error Boundary       │
 └──────────────┬──────────────────┘
                │ Supabase SDK
 ┌──────────────▼──────────────────┐
 │    Supabase (PostgreSQL)        │
+│    + Realtime Subscriptions     │
 └──────────────┬──────────────────┘
                │ WebSocket/HTTP
 ┌──────────────▼──────────────────┐
-│    Agente Bridge (Node.js)      │
+│    Agent Bridge (Node.js)       │
+│    + Multi-Brand Adapters       │
 └──────────────┬──────────────────┘
                │ ISAPI/HTTPS
 ┌──────────────▼──────────────────┐
@@ -128,31 +204,18 @@ Sistema web para gestionar terminales biométricos Hikvision DS-K1T320MFWX (reco
 └─────────────────────────────────┘
 ```
 
-## 📝 Próximos Pasos
+## ✅ Fases Completadas
 
-### Fase 2: Agente Bridge
-- [ ] Crear agente Node.js para conectar con el reloj
-- [ ] Sincronización de eventos cada 30 segundos
-- [ ] Heartbeat para monitoreo de estado
-
-### Fase 3: Gestión de Personas
-- [ ] CRUD completo de personas
-- [ ] Alta con foto facial y huella
-- [ ] Sincronización con el reloj vía ISAPI
-
-### Fase 4: Eventos y Dashboard
-- [ ] Listado de eventos en tiempo real
-- [ ] Dashboard con KPIs
-- [ ] Filtros avanzados
-
-### Fase 5: Reportes
-- [ ] Reportes de asistencia
-- [ ] Exportación PDF y Excel
-
-### Fase 6: Control de Puerta y Auditoría
-- [ ] Apertura/cierre remoto
-- [ ] Estado de puerta
-- [ ] Log de auditoría completo
+| Fase | Estado | Descripción |
+|------|---------|-------------|
+| Fase 1: Infraestructura | ✅ Completo | Base de datos, auth, Supabase |
+| Fase 2: Refactorización Multi-Marca | ✅ Completo | Adapter pattern, HikvisionAdapter |
+| Fase 3: Gestión de Personas | ✅ Completo | CRUD, foto facial, huella, sync |
+| Fase 3.5: Consolidación | ✅ Completo | Integración de loops, legacy removal |
+| Fase 4: Eventos y Dashboard | ✅ Completo | Realtime, KPIs, filtros |
+| Fase 5: Reportes | ✅ Completo | PDF/Excel export |
+| Fase 6: Control de Puerta | ✅ Completo | Apertura/cierre remoto, estado |
+| Fase 7: QA y Hardening | ✅ Completo | Security fixes, Error Boundary, docs |
 
 ## 📄 Licencia
 

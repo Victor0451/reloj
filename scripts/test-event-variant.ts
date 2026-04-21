@@ -1,10 +1,19 @@
 import { HikvisionAdapter } from '../agent/src/adapters/hikvision.adapter'
 
+const deviceIp = process.env.DEVICE_IP || '192.168.1.175'
+const devicePassword = process.env.DEVICE_PASSWORD
+
+if (!devicePassword) {
+  console.error('❌ DEVICE_PASSWORD environment variable is required')
+  console.error('   Usage: DEVICE_PASSWORD=mipass npx tsx scripts/test-event-variant.ts')
+  process.exit(1)
+}
+
 const adapter = new HikvisionAdapter({
-  ip: '192.168.1.175',
+  ip: deviceIp,
   port: 443,
-  username: 'admin',
-  password: 'evol@2601',
+  username: process.env.DEVICE_USERNAME || 'admin',
+  password: devicePassword,
 })
 
 async function test() {
