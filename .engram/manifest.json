@@ -8,6 +8,14 @@
       "sessions": 8,
       "memories": 95,
       "prompts": 71
+    },
+    {
+      "id": "2a44690a",
+      "created_by": "vlongo",
+      "created_at": "2026-04-25T14:54:08Z",
+      "sessions": 21,
+      "memories": 55,
+      "prompts": 52
     }
   ]
 }
