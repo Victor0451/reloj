@@ -38,6 +38,16 @@ export interface AccessEvent {
   alarmType?: string;
   status?: string;
   raw?: Record<string, unknown>;
+  /** Extracted from minor=38 events (person name detected by device) */
+  detectedName?: string;
+  /** Extracted from minor=38 events (employee number string from device) */
+  detectedEmployeeNo?: string;
+  /** Device serial number (from Hikvision serialNo field) */
+  deviceSerialNo?: string;
+  /** Card reader number that processed the event */
+  cardReaderNo?: number;
+  /** Human-readable label from device (e.g. "Check In", "Check Out") */
+  label?: string;
 }
 
 // ─── Persons ─────────────────────────────────────────────────────────────────
@@ -126,6 +136,11 @@ export interface IDeviceAdapter {
    * Sincroniza una persona al dispositivo
    */
   syncPerson(person: Person): Promise<SyncResult>;
+
+  /**
+   * Crea una persona en el dispositivo (device assigns employeeNo)
+   */
+  createPersonOnDevice(person: Person): Promise<SyncResult>;
 
   /**
    * Elimina una persona del dispositivo

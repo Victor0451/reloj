@@ -5,8 +5,64 @@
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import type { Person } from "../core/interfaces";
 import { AdapterManager } from "../core/adapter-manager";
 import * as log from "../utils/logger";
+
+/**
+ * Upsert a person from an access event.
+ * Checks if a person with the given employeeNo exists, updates the name if different,
+ * or creates a new person record.
+ */
+export async function upsertPersonFromEvent(
+  supabase: SupabaseClient,
+  name: string,
+  employeeNo: string
+): Promise<Person | null> {
+  // Check if person already exists by employee_id
+  const { data: existing } = await supabase
+    .from("persons")
+    .select("id, name, employee_id")
+    .eq("employee_id", employeeNo)
+    .single();
+
+  if (existing) {
+    // Person exists - update name only if different
+    if (existing.name !== name) {
+      const { error } = await supabase
+        .from("persons")
+        .update({ name })
+        .eq("id", existing.id);
+
+      if (error) {
+        log.warn("eventSync", "Failed to update person name", { employeeNo, error: error.message });
+        return existing;
+      }
+      log.info("eventSync", "Updated person name", { employeeNo, oldName: existing.name, newName: name });
+      return { ...existing, name };
+    }
+    return existing;
+  }
+
+  // Create new person
+  const { data: created, error } = await supabase
+    .from("persons")
+    .insert({
+      name,
+      employee_id: employeeNo,
+      status: "active",
+    })
+    .select("id, name, employee_id")
+    .single();
+
+  if (error) {
+    log.error("eventSync", "Failed to create person", { employeeNo, name, error: error.message });
+    return null;
+  }
+
+  log.info("eventSync", "Created new person", { employeeNo, name });
+  return created;
+}
 
 export interface EventSyncOptions {
   /** Intervalo en ms (default 30000) */
@@ -23,6 +79,8 @@ export interface EventSyncOptions {
   deviceUsername?: string;
   /** Password para autenticación */
   devicePassword?: string;
+  /** Permite certificados autofirmados o expirados */
+  allowSelfSignedCert?: boolean;
 }
 
 interface SyncState {
@@ -99,7 +157,7 @@ export function startEventSyncLoop(
         let skipped = 0;
 
         for (const event of events) {
-          const dedupKey = `${event.employeeId}-${event.eventTime.getTime()}`;
+          const dedupKey = `${event.employeeId}-${event.eventTime.getTime()}-${event.cardReaderNo || '0'}`;
           if (state.dedupKeys.has(dedupKey)) {
             skipped++;
             continue;
@@ -112,11 +170,30 @@ export function startEventSyncLoop(
             state.dedupKeys = new Set(keysArray.slice(-500));
           }
 
+          // Upsert person if identity was extracted from minor=38 event
+          let personId: string | null = null;
+          if (event.detectedName && event.detectedEmployeeNo) {
+            const person = await upsertPersonFromEvent(
+              supabase,
+              event.detectedName,
+              event.detectedEmployeeNo
+            );
+            if (person) {
+              personId = person.id;
+              log.info("eventSync", `Linked person to event`, {
+                personId,
+                employeeNo: event.detectedEmployeeNo,
+                name: event.detectedName
+              });
+            }
+          }
+
           const { error } = await (supabase as any)
             .from("access_events")
             .insert({
               device_serial: deviceId,
               employee_id: event.employeeId,
+              person_id: personId,
               event_time: event.eventTime,
               major: event.major,
               minor: event.minor,
@@ -124,6 +201,10 @@ export function startEventSyncLoop(
               verify_mode: event.verifyMode,
               raw_payload: event.raw,
               synced_at: new Date().toISOString(),
+              device_serial_no: event.deviceSerialNo || null,
+              door_no: event.doorNo || null,
+              card_reader_no: event.cardReaderNo || null,
+              label: event.label || null,
             });
 
           if (error) {
@@ -201,6 +282,7 @@ export function startSingleDeviceEventSync(
     deviceBrand = "hikvision",
     deviceUsername,
     devicePassword,
+    allowSelfSignedCert = false,
   } = options;
 
   let isRunning = true;
@@ -209,6 +291,9 @@ export function startSingleDeviceEventSync(
 
   async function syncEvents() {
     if (!isRunning) return;
+
+    // Longer delay to respect device limitations
+    await new Promise(resolve => setTimeout(resolve, 5000));
 
     try {
       await (supabase as any)
@@ -219,6 +304,12 @@ export function startSingleDeviceEventSync(
         })
         .eq("id", deviceId);
 
+      // Remove cached adapter to force fresh connection
+      adapterManager.removeAdapter(deviceId).catch(() => {});
+
+      // Small delay after removing adapter
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
       const adapter = await adapterManager.getAdapter({
         id: deviceId,
         serialNumber: deviceSerial,
@@ -226,6 +317,7 @@ export function startSingleDeviceEventSync(
         brand: deviceBrand,
         username: deviceUsername,
         password: devicePassword,
+        allowSelfSignedCert,
       });
 
       const events = await adapter.getEvents({
@@ -252,42 +344,70 @@ export function startSingleDeviceEventSync(
       let inserted = 0;
       let skipped = 0;
 
-      for (const event of events) {
-        const dedupKey = `${event.employeeId}-${event.eventTime.getTime()}`;
-        if (dedupKeys.has(dedupKey)) {
-          skipped++;
-          continue;
+for (const event of events) {
+          const dedupKey = `${event.employeeId}-${event.eventTime.getTime()}-${event.cardReaderNo || '0'}`;
+          if (dedupKeys.has(dedupKey)) {
+            skipped++;
+            continue;
+          }
+
+          dedupKeys.add(dedupKey);
+
+          if (dedupKeys.size > 1000) {
+            const keysArray = Array.from(dedupKeys);
+            dedupKeys.clear();
+            keysArray.slice(-500).forEach((k) => dedupKeys.add(k));
+          }
+
+          // Upsert person if identity was extracted from minor=38 event
+          let personId: string | null = null;
+          if (event.detectedName && event.detectedEmployeeNo) {
+            const person = await upsertPersonFromEvent(
+              supabase,
+              event.detectedName,
+              event.detectedEmployeeNo
+            );
+            if (person) {
+              personId = person.id;
+              log.info("eventSync", `Linked person to event`, {
+                personId,
+                employeeNo: event.detectedEmployeeNo,
+                name: event.detectedName
+              });
+            }
+          }
+
+          const { error } = await (supabase as any)
+            .from("access_events")
+            .insert({
+              device_serial: deviceSerial,
+              employee_id: event.employeeId,
+              person_id: personId,
+              event_time: event.eventTime,
+              major: event.major,
+              minor: event.minor,
+              event_type: event.eventType,
+              verify_mode: event.verifyMode,
+              raw_payload: event.raw,
+              synced_at: new Date().toISOString(),
+              device_serial_no: event.deviceSerialNo || null,
+              door_no: event.doorNo || null,
+              card_reader_no: event.cardReaderNo || null,
+              label: event.label || null,
+            });
+
+          if (error) {
+            log.error("eventSync", "Failed to insert event", { error: error.message });
+            skipped++;
+          } else {
+            log.info("eventSync", "Event saved", {
+              person_id: personId,
+              employeeId: event.employeeId,
+              eventType: event.eventType
+            });
+            inserted++;
+          }
         }
-
-        dedupKeys.add(dedupKey);
-
-        if (dedupKeys.size > 1000) {
-          const keysArray = Array.from(dedupKeys);
-          dedupKeys.clear();
-          keysArray.slice(-500).forEach((k) => dedupKeys.add(k));
-        }
-
-        const { error } = await (supabase as any)
-          .from("access_events")
-          .insert({
-            device_serial: deviceSerial,
-            employee_id: event.employeeId,
-            event_time: event.eventTime,
-            major: event.major,
-            minor: event.minor,
-            event_type: event.eventType,
-            verify_mode: event.verifyMode,
-            raw_payload: event.raw,
-            synced_at: new Date().toISOString(),
-          });
-
-        if (error) {
-          log.error("eventSync", "Failed to insert event", { error: error.message });
-          skipped++;
-        } else {
-          inserted++;
-        }
-      }
 
       lastSyncTime = new Date();
 

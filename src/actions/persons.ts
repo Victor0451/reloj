@@ -325,3 +325,48 @@ export async function getPhotoSignedUrl(
 
   return { success: true, data: { url: data.signedUrl } }
 }
+
+export async function listDeadLetterPersons(): Promise<ActionResult<PersonRecord[]>> {
+  const roleCheck = await checkRole(['admin'])
+  if (!roleCheck.success) return roleCheck as ActionResult<PersonRecord[]>
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const admin: any = createAdminClient()
+
+  const { data, error } = await admin
+    .from('persons')
+    .select('*')
+    .eq('status', 'sync_dead_letter')
+    .order('updated_at', { ascending: false })
+
+  if (error) {
+    return { success: false, error: error.message }
+  }
+
+  return { success: true, data: data as PersonRecord[] }
+}
+
+export async function resetPersonSync(personId: string): Promise<ActionResult<PersonRecord>> {
+  const roleCheck = await checkRole(['admin'])
+  if (!roleCheck.success) return roleCheck as ActionResult<PersonRecord>
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const admin: any = createAdminClient()
+
+  const { data, error } = await admin
+    .from('persons')
+    .update({
+      status: 'pending_sync',
+      sync_attempts: 0,
+      sync_error: null,
+    })
+    .eq('id', personId)
+    .select()
+    .single()
+
+  if (error) {
+    return { success: false, error: error.message }
+  }
+
+  return { success: true, data: data as PersonRecord }
+}

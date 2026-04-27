@@ -35,6 +35,7 @@ export interface DeviceListItem extends DeviceRuntimeState {
 export interface DeviceRecord extends DeviceListItem {
   device_username: string | null
   device_password_encrypted: string | null
+  allow_self_signed_cert?: boolean
 }
 
 // Backward-compatible alias while the rest of the UI migrates to the safe DTO name.
@@ -46,6 +47,7 @@ export interface DeviceConnectionInput {
   password: string
   brand?: DeviceBrand
   port?: number
+  allow_self_signed_cert?: boolean
 }
 
 export interface CreateDeviceInput extends DeviceConnectionInput {

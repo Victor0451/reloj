@@ -16,6 +16,22 @@
       "sessions": 21,
       "memories": 55,
       "prompts": 52
+    },
+    {
+      "id": "f70441bd",
+      "created_by": "vlongo",
+      "created_at": "2026-04-27T04:15:17Z",
+      "sessions": 6,
+      "memories": 53,
+      "prompts": 293
+    },
+    {
+      "id": "19af21af",
+      "created_by": "vlongo",
+      "created_at": "2026-04-27T04:24:50Z",
+      "sessions": 0,
+      "memories": 0,
+      "prompts": 1
     }
   ]
 }

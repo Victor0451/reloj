@@ -2,7 +2,7 @@
 
 **Estado**: ✅ Completa
 
-**Fecha de completación**: 21 de abril de 2026
+**Fecha de completación**: 21 de Abril 2026
 
 ## Objetivo
 

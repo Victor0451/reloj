@@ -51,6 +51,7 @@ export async function performDeviceConnectionCheck(
           port: input.port ?? getDefaultPort(brand),
           username: input.username,
           password: input.password,
+          rejectUnauthorized: input.allow_self_signed_cert ? false : true,
         })
 
         try {
@@ -113,7 +114,7 @@ async function getStoredDeviceConnectionInput(deviceId: string): Promise<DeviceC
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data, error } = await (supabase as any)
     .from('devices')
-    .select('ip_address, device_username, device_password_encrypted, brand')
+    .select('ip_address, device_username, device_password_encrypted, brand, allow_self_signed_cert')
     .eq('id', deviceId)
     .single()
 
@@ -126,6 +127,7 @@ async function getStoredDeviceConnectionInput(deviceId: string): Promise<DeviceC
     username: data.device_username,
     password: data.device_password_encrypted,
     brand: data.brand || 'hikvision',
+    allow_self_signed_cert: data.allow_self_signed_cert ?? false,
   }
 }
 
@@ -206,7 +208,7 @@ export async function checkAllDevices(): Promise<{
       throw new Error(`Error al obtener dispositivos: ${error.message}`)
     }
 
-    const rows = (devices || []) as Array<Pick<DeviceRecord, 'id' | 'ip_address' | 'device_username' | 'device_password_encrypted' | 'brand'>>
+    const rows = (devices || []) as Array<Pick<DeviceRecord, 'id' | 'ip_address' | 'device_username' | 'device_password_encrypted' | 'brand' | 'allow_self_signed_cert'>>
     const results: Array<{ deviceId: string; result: HealthCheckResult }> = []
     let onlineCount = 0
     let offlineCount = 0
@@ -227,6 +229,7 @@ export async function checkAllDevices(): Promise<{
           username: device.device_username,
           password: device.device_password_encrypted,
           brand: device.brand || 'hikvision',
+          allow_self_signed_cert: device.allow_self_signed_cert ?? false,
         })
       }
 

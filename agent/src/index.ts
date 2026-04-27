@@ -26,6 +26,7 @@ interface DeviceFromDB {
   device_username: string | null;
   device_password_encrypted: string | null;
   status: string;
+  allow_self_signed_cert?: boolean;
 }
 
 interface DeviceReadiness {
@@ -38,7 +39,7 @@ interface DeviceReadiness {
 async function fetchAllDevices(supabase: any): Promise<DeviceReadiness> {
   const { data, error } = await supabase
     .from("devices")
-    .select("id, serial_number, name, brand, ip_address, device_username, device_password_encrypted, status")
+    .select("id, serial_number, name, brand, ip_address, device_username, device_password_encrypted, status, allow_self_signed_cert")
     .order("name", { ascending: true });
 
   if (error) {
@@ -123,6 +124,7 @@ async function main() {
     const deviceUsername = device.device_username || "admin";
     const devicePassword = device.device_password_encrypted || "";
     const deviceBrand = device.brand || "hikvision";
+    const allowSelfSigned = device.allow_self_signed_cert ?? false;
 
     log.info("agent", `Setting up sync loops for: ${device.name}`, {
       ip: deviceIp,
@@ -141,6 +143,7 @@ async function main() {
         deviceBrand,
         deviceUsername,
         devicePassword,
+        allowSelfSignedCert: allowSelfSigned,
       }
     );
     registerCleanup(stopHeartbeat);
@@ -150,7 +153,7 @@ async function main() {
       adapterManager,
       deviceId,
       deviceSerial,
-      supabaseRealtime,
+      supabaseAdmin,
       {
         intervalMs: config.pollIntervalMs,
         maxResults: 200,
@@ -159,6 +162,7 @@ async function main() {
         deviceBrand,
         deviceUsername,
         devicePassword,
+        allowSelfSignedCert: allowSelfSigned,
       }
     );
     registerCleanup(stopEventSync);
@@ -176,6 +180,7 @@ async function main() {
         deviceBrand,
         deviceUsername,
         devicePassword,
+        allowSelfSignedCert: allowSelfSigned,
       }
     );
     registerCleanup(stopPersonSync);

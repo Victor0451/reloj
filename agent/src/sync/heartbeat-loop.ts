@@ -21,6 +21,8 @@ export interface HeartbeatOptions {
   deviceUsername?: string;
   /** Password para autenticación */
   devicePassword?: string;
+  /** Permite certificados autofirmados o expirados */
+  allowSelfSignedCert?: boolean;
 }
 
 /**
@@ -129,6 +131,7 @@ export function startSingleDeviceHeartbeat(
     deviceBrand = "hikvision",
     deviceUsername,
     devicePassword,
+    allowSelfSignedCert = false,
   } = options;
 
   let consecutiveFailures = 0;
@@ -145,6 +148,7 @@ export function startSingleDeviceHeartbeat(
         brand: deviceBrand,
         username: deviceUsername,
         password: devicePassword,
+        allowSelfSignedCert,
       });
 
       // Hacer healthCheck directo

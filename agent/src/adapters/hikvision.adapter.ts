@@ -19,8 +19,21 @@ import {
 
 import https from "node:https";
 import http from "node:http";
-import crypto from "node:crypto";
+import DigestFetch from "digest-fetch";
+import nodeFetch from "node-fetch";
 import * as log from "../utils/logger";
+
+// ─── Local Types ────────────────────────────────────────────────────────────
+
+interface DevicePerson {
+  employeeNo: string;
+  name: string;
+  userType?: string;
+  doorRight?: string;
+  numOfCard?: number;
+  numOfFP?: number;
+  numOfFace?: number;
+}
 
 // ─── XML Parser ────────────────────────────────────────────────────────────────
 
@@ -61,47 +74,77 @@ function extractXmlText(xml: string, path: string[]): string | undefined {
 
 // ─── Digest Auth Client ───────────────────────────────────────────────────────
 
-async function digestRequest(
+const DEFAULT_TIMEOUT_MS = 30000;
+
+/* ─── Legacy Digest Implementation (Rollback) ────────────────────────────────
+function generateDigestAuthLegacy(
+  wwwAuth: string,
+  username: string,
+  password: string,
+  method: string,
+  uri: string
+): string {
+  const params: Record<string, string> = {};
+  const regex = /(\w+)="([^"]+)"/g;
+  let match;
+  while ((match = regex.exec(wwwAuth)) !== null) {
+    params[match[1]] = match[2];
+  }
+  const nonce = params["nonce"];
+  const realm = params["realm"];
+  const qop = params["qop"] || "auth";
+  const cnonce = crypto.randomBytes(16).toString("hex");
+  const nc = "00000001";
+  // MD5 required for Hikvision ISAPI legacy digest auth
+  const ha1 = crypto.createHash("md5").update(`${username}:${realm}:${password}`).digest("hex");
+  const ha2 = crypto.createHash("md5").update(`${method}:${uri}`).digest("hex");
+  const response = crypto.createHash("md5").update(`${ha1}:${nonce}:${nc}:${cnonce}:${qop}:${ha2}`).digest("hex");
+  return `Digest username="${username}", realm="${realm}", nonce="${nonce}", uri="${uri}", qop=${qop}, nc=${nc}, cnonce="${cnonce}", response="${response}"`;
+}
+
+async function digestRequestLegacy(
   url: string,
   username: string,
   password: string,
   method: string = "GET",
   body?: string,
   contentType: string = "application/xml; charset=utf-8",
-  rejectUnauthorized: boolean = true
+  rejectUnauthorized: boolean = true,
+  timeoutMs?: number,
+  retryCount?: number
 ): Promise<{ status: number; body: string }> {
   return new Promise((resolve, reject) => {
     const urlObj = new URL(url);
     const isHttps = urlObj.protocol === "https:";
+    const effectiveTimeoutMs = timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
 
     function makeRequest(authHeader?: string) {
       const headers: Record<string, string> = {
         "Content-Type": contentType,
         "User-Agent": "Hikvision-ISAPI-Adapter/1.0",
       };
-
       if (authHeader) {
         headers["Authorization"] = authHeader;
       }
-
-      const options: http.RequestOptions & { rejectUnauthorized?: boolean } = {
+      const options: http.RequestOptions & { rejectUnauthorized?: boolean; timeout?: number } = {
         hostname: urlObj.hostname,
         port: urlObj.port || (isHttps ? 443 : 80),
         path: urlObj.pathname + urlObj.search,
         method,
         headers,
         rejectUnauthorized,
+        timeout: effectiveTimeoutMs,
       };
-
       const req = (isHttps ? https : http).request(options, (res) => {
+        if (timeoutId) clearTimeout(timeoutId);
         let data = "";
         res.on("data", (chunk) => { data += chunk; });
         res.on("end", () => {
-          // Si necesitamos autenticación
           if (res.statusCode === 401 && !authHeader) {
             const wwwAuth = res.headers["www-authenticate"];
             if (typeof wwwAuth === "string" && wwwAuth.startsWith("Digest ")) {
-              const auth = generateDigestAuth(wwwAuth, username, password, method, urlObj.pathname);
+              const auth = generateDigestAuthLegacy(wwwAuth, username, password, method, urlObj.pathname);
               makeRequest(auth);
               return;
             }
@@ -109,46 +152,134 @@ async function digestRequest(
           resolve({ status: res.statusCode || 500, body: data });
         });
       });
-
-      req.on("error", reject);
+      req.on("error", (err) => {
+        if (timeoutId) clearTimeout(timeoutId);
+        reject(err);
+      });
+      timeoutId = setTimeout(() => {
+        req.destroy(new Error(`Connection timeout after ${effectiveTimeoutMs}ms`));
+      }, effectiveTimeoutMs);
       if (body) req.write(body);
       req.end();
     }
-
     makeRequest();
   });
 }
+////////////////////////////////////////////////////////////////////////////////
+// ROLLBACK: uncomment above legacy block + remove DigestFetch, swap doDigestRequest
+//////////////////////////////////////////////////////////////////////////////// */
 
-function generateDigestAuth(
-  wwwAuth: string,
+/* ─── DigestFetch Implementation ──────────────────────────────────────────── */
+
+async function doDigestRequest(
+  url: string,
   username: string,
   password: string,
   method: string,
-  uri: string
-): string {
-  // Parse Digest params
-  const params: Record<string, string> = {};
-  const regex = /(\w+)="([^"]+)"/g;
-  let match;
-  while ((match = regex.exec(wwwAuth)) !== null) {
-    params[match[1]] = match[2];
+  body?: string,
+  contentType?: string,
+  rejectUnauthorized?: boolean,
+  timeoutMs?: number
+): Promise<{ status: number; body: string }> {
+  const effectiveContentType = contentType ?? "application/xml; charset=utf-8";
+  const effectiveRejectUnauthorized = rejectUnauthorized ?? true;
+  const effectiveTimeoutMs = timeoutMs ?? DEFAULT_TIMEOUT_MS;
+
+  const urlObj = new URL(url);
+  const isHttps = urlObj.protocol === "https:";
+
+  // Build HTTPS agent with rejectUnauthorized option
+  const agent = isHttps
+    ? new https.Agent({ rejectUnauthorized: effectiveRejectUnauthorized, timeout: effectiveTimeoutMs })
+    : undefined;
+
+  const client = new DigestFetch(username, password, { agent });
+
+  const headers: Record<string, string> = { "Content-Type": effectiveContentType };
+
+  // First request to trigger 401 and get www-authenticate challenge
+  const challengeResp = await nodeFetch(url, { method, body, headers, agent });
+
+  if (challengeResp.status !== 401) {
+    return { status: challengeResp.status, body: await challengeResp.text() };
   }
 
-  const nonce = params["nonce"];
-  const realm = params["realm"];
-  const qop = params["qop"] || "auth";
+  // Parse the digest challenge from www-authenticate header
+  const wwwAuth = challengeResp.headers.get("www-authenticate");
+  if (wwwAuth && wwwAuth.startsWith("Digest ") && !client.hasAuth) {
+    client.parseAuth(wwwAuth);
 
-  const cnonce = crypto.randomBytes(16).toString("hex");
-  const nc = "00000001";
+    // Make authenticated request with digest auth header
+    const authOptions = client.addAuth(url, { method, body, headers });
+    const authResp = await nodeFetch(url, { ...authOptions, agent });
 
-  // NOTE: MD5 is required by Hikvision ISAPI legacy digest auth scheme.
-  // This is cryptographically weak but unavoidable for compatibility with
-  // older Hikvision firmware. Acceptable risk for internal network use only.
-  const ha1 = crypto.createHash("md5").update(`${username}:${realm}:${password}`).digest("hex");
-  const ha2 = crypto.createHash("md5").update(`${method}:${uri}`).digest("hex");
-  const response = crypto.createHash("md5").update(`${ha1}:${nonce}:${nc}:${cnonce}:${qop}:${ha2}`).digest("hex");
+    // Update digest nc for subsequent requests
+    client.digest.nc++;
 
-  return `Digest username="${username}", realm="${realm}", nonce="${nonce}", uri="${uri}", qop=${qop}, nc=${nc}, cnonce="${cnonce}", response="${response}"`;
+    return { status: authResp.status, body: await authResp.text() };
+  }
+
+  return { status: challengeResp.status, body: await challengeResp.text() };
+}
+
+/* ─── Public digestRequest (wraps doDigestRequest with retry logic) ─────────── */
+
+async function digestRequest(
+  url: string,
+  username: string,
+  password: string,
+  method: string = "GET",
+  body?: string,
+  contentType?: string,
+  rejectUnauthorized?: boolean,
+  timeoutMs?: number,
+  retryCount?: number
+): Promise<{ status: number; body: string }> {
+  const effectiveContentType = contentType ?? "application/xml; charset=utf-8";
+  const effectiveRejectUnauthorized = rejectUnauthorized ?? true;
+  const effectiveTimeoutMs = timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const effectiveRetryCount = retryCount ?? 2;
+
+  let lastError: Error | null = null;
+
+  for (let attempt = 0; attempt <= effectiveRetryCount; attempt++) {
+    try {
+      const result = await doDigestRequest(url, username, password, method, body, effectiveContentType, effectiveRejectUnauthorized, effectiveTimeoutMs);
+      return result;
+    } catch (err) {
+      lastError = err as Error;
+
+      // Only retry on socket hang up or timeout
+      const isRetryable = lastError.message.includes("socket hang up") ||
+                          lastError.message.includes("ETIMEDOUT") ||
+                          lastError.message.includes("ECONNRESET") ||
+                          lastError.message.includes("ENOTFOUND");
+
+      if (isRetryable && attempt < effectiveRetryCount) {
+        await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)));
+        continue;
+      }
+
+      throw lastError;
+    }
+  }
+
+  throw lastError;
+}
+
+/**
+ * Format date for Hikvision ISAPI: 2026-04-26T21:57:44-03:00
+ * DS-K1T320MFWX requires timezone offset, not UTC ISO string
+ */
+function formatHikvisionTime(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  const seconds = String(date.getSeconds()).padStart(2, "0");
+  // Hardcode -03:00 for Argentina. In production, calculate from timezone.
+  return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}-03:00`;
 }
 
 // ─── Hikvision Adapter ───────────────────────────────────────────────────────
@@ -294,16 +425,27 @@ export class HikvisionAdapter implements IDeviceAdapter {
     const endTime = options?.endTime ?? new Date();
     const maxResults = options?.maxResults ?? 100;
 
-    // Try JSON format first (required for ACS devices like DS-K1T320)
-    const jsonBody = JSON.stringify({
-      AcsEventCond: {
-        searchID: `sync_${Date.now()}`,
-        searchResultPosition: 0,
-        maxResults: maxResults,
-        startTime: startTime.toISOString(),
-        endTime: endTime.toISOString(),
-      },
-    });
+    // DS-K1T320MFWX rejects startTime/endTime with 400 "badJsonContent" error.
+    // Only include time filters when explicitly requested by caller.
+    // Note: Even with explicit time filters, some devices may still reject them.
+    const hasTimeFilter = options?.startTime !== undefined && options?.endTime !== undefined;
+
+    const acsEventCond: Record<string, unknown> = {
+      searchID: `sync_${Date.now()}`,
+      searchResultPosition: 0,
+      maxResults: Math.min(maxResults, 200),
+      major: 5,
+      minor: 38,
+    };
+
+    // Only add time filters when caller explicitly provides both startTime and endTime
+    // DS-K1T320MFWX needs proper ISO format with timezone offset: 2026-04-26T21:57:44-03:00
+    if (hasTimeFilter) {
+      acsEventCond.startTime = formatHikvisionTime(startTime);
+      acsEventCond.endTime = formatHikvisionTime(endTime);
+    }
+
+    const jsonBody = JSON.stringify({ AcsEventCond: acsEventCond });
 
     try {
       // Try JSON endpoint
@@ -366,24 +508,56 @@ export class HikvisionAdapter implements IDeviceAdapter {
 
   private parseJsonEvents(data: any): AccessEvent[] {
     const events: AccessEvent[] = [];
-    
+
     try {
-      const eventList = data?.AcsEvent?.AcsEventList?.AcsEvent || [];
+      // DS-K1T320MFWX returns events in InfoList, not AcsEventList.AcsEvent
+      const eventList = data?.AcsEvent?.InfoList || [];
       const list = Array.isArray(eventList) ? eventList : [eventList];
       
       for (const event of list) {
         if (!event) continue;
-        events.push({
-          employeeId: String(event.employeeNo || event.cardNo || "unknown"),
+
+        // Determine eventType: attendance events (major=5, minor=38) use attendanceStatus
+        let eventType: string;
+        if (event.major === 5 && event.minor === 38) {
+          const status = event.attendanceStatus;
+          if (status && typeof status === 'string' && status.trim() !== '') {
+            eventType = status.trim();
+          } else {
+            log.warn("hikvision", "Missing or unknown attendanceStatus for minor=38 event", {
+              employeeNo: event.employeeNo,
+              attendanceStatus: status,
+            });
+            eventType = "attendance_unknown";
+          }
+        } else {
+          eventType = this.mapEventType(Number(event.major), Number(event.minor));
+        }
+
+        const accessEvent: AccessEvent = {
+          employeeId: String(event.employeeNo || event.employeeNoString || event.cardNo || "unknown"),
           employeeNo: event.employeeNo,
           cardNo: event.cardNo,
           eventTime: new Date(event.time || Date.now()),
-          major: Number(event.majorEventType || 0),
-          minor: Number(event.minorEventType || 0),
-          eventType: this.mapEventType(Number(event.majorEventType), Number(event.minorEventType)),
-          verifyMode: this.mapVerifyMode(Number(event.verificationMode)),
+          major: Number(event.major || 0),
+          minor: Number(event.minor || 0),
+          eventType,
+          verifyMode: event.currentVerifyMode,
+          doorNo: event.doorNo,
+          deviceSerialNo: String(event.serialNo || ''),
+          cardReaderNo: event.cardReaderNo,
+          label: event.label,
           raw: event,
-        });
+        };
+
+        // Extract identity from successful authentication events (minor=38)
+        // These events contain the detected name and employeeNoString from the device
+        if (accessEvent.minor === 38) {
+          accessEvent.detectedName = event.name;
+          accessEvent.detectedEmployeeNo = event.employeeNoString;
+        }
+
+        events.push(accessEvent);
       }
     } catch (err) {
       log.warn("hikvision", "Failed to parse JSON events", { error: (err as Error).message });
@@ -420,26 +594,32 @@ export class HikvisionAdapter implements IDeviceAdapter {
 
   // ── Persons ────────────────────────────────────────────────────────────────
 
-  async syncPerson(person: Person): Promise<SyncResult> {
-    // Hikvision usa EmployeeNo como identificador
-    const employeeNo = person.employeeNo || person.employeeId || "0";
+  /**
+   * Create a new person on the device via POST.
+   * Use this for NEW persons - the device assigns the employeeNo.
+   * Returns the assigned employeeNo if available.
+   */
+  async createPerson(person: Person): Promise<SyncResult> {
+    const employeeNo = person.employeeNo || person.employeeId || "";
+    const name = person.name;
 
     try {
       const requestBody = `<?xml version="1.0" encoding="utf-8"?>
-<UserInfo version="2.0" xmlns="http://www.isapi.org/ver20/XMLSchema">
+<UserInfo>
   <employeeNo>${this.escapeXml(employeeNo)}</employeeNo>
-  <name>${this.escapeXml(person.name)}</name>
+  <name>${this.escapeXml(name)}</name>
   <userType>normal</userType>
   <Valid>
     <enable>true</enable>
   </Valid>
+  ${person.cardNumber ? `<cardList><card><cardNo>${this.escapeXml(person.cardNumber)}</cardNo></card></cardList>` : ''}
 </UserInfo>`;
 
       const response = await digestRequest(
-        `${this.baseUrl}/ISAPI/AccessControl/UserInfo/1`,
+        `${this.baseUrl}/ISAPI/AccessControl/UserInfo/Record`,
         this.config.username,
         this.config.password,
-        "PUT",
+        "POST",
         requestBody,
         "application/xml; charset=utf-8",
         this.config.rejectUnauthorized
@@ -449,11 +629,14 @@ export class HikvisionAdapter implements IDeviceAdapter {
         return {
           success: false,
           employeeNo,
-          error: `Failed to sync person: ${response.status}`,
+          error: `Create failed: ${response.status}`,
         };
       }
 
-      return { success: true, employeeNo };
+      // POST may succeed but not return the assigned employeeNo in body.
+      // Search by name to get the number the device assigned.
+      const assignedNo = await this.getAssignedEmployeeNo(name);
+      return { success: true, employeeNo: assignedNo ?? employeeNo ?? "assigned" };
     } catch (err) {
       return {
         success: false,
@@ -463,75 +646,17 @@ export class HikvisionAdapter implements IDeviceAdapter {
     }
   }
 
-  async deletePerson(employeeNo: string): Promise<void> {
+  /**
+   * Get employeeNo assigned by device after creation.
+   * Searches by name since we don't know the number.
+   */
+  private async getAssignedEmployeeNo(name: string): Promise<string | null> {
     try {
-      const response = await digestRequest(
-        `${this.baseUrl}/ISAPI/AccessControl/UserInfo/1?employeeNo=${encodeURIComponent(employeeNo)}`,
-        this.config.username,
-        this.config.password,
-        "DELETE",
-        undefined,
-        "application/xml; charset=utf-8",
-        this.config.rejectUnauthorized
-      );
-
-      // 404 = persona no existe, no es error
-      if (response.status === 404) {
-        return;
-      }
-
-      if (response.status !== 200 && response.status !== 204) {
-        throw new Error(`Failed to delete person: ${response.status}`);
-      }
-    } catch (err) {
-      // Ignorar errores de conexión
-      log.warn("hikvision", "Error deleting person", { employeeNo, error: (err as Error).message });
-    }
-  }
-
-  async getPersons(): Promise<Person[]> {
-    // Este endpoint puede no existir en todos los dispositivos
-    // Retornar vacío en vez de fallar
-    try {
-      const response = await digestRequest(
-        `${this.baseUrl}/ISAPI/AccessControl/UserInfo/1?format=0`,
-        this.config.username,
-        this.config.password,
-        "GET",
-        undefined,
-        "application/xml; charset=utf-8",
-        this.config.rejectUnauthorized
-      );
-
-      // Endpoint no soportado
-      if (response.status === 404 || response.status === 400) {
-        log.info("hikvision", "Person listing not supported on this device");
-        return [];
-      }
-
-      if (response.status !== 200) {
-        throw new Error(`Failed to get persons: ${response.status}`);
-      }
-
-      const persons: Person[] = [];
-      const personRegex = /<UserInfo>([\s\S]*?)<\/UserInfo>/g;
-      let match;
-
-      while ((match = personRegex.exec(response.body)) !== null) {
-        const parsed = parseXmlResponse(match[1]);
-        persons.push({
-          id: parsed["employeeNo"] as string,
-          employeeNo: parsed["employeeNo"] as string,
-          name: parsed["name"] as string,
-          status: "active",
-        });
-      }
-
-      return persons;
-    } catch (err) {
-      // No es fatal - retornar vacío
-      log.warn("hikvision", "Could not list persons", { error: (err as Error).message });
-      return [];
+      const persons = await this.getPersons();
+      const found = persons.find((p) => p.name === name && p.employeeNo);
+      return found?.employeeNo ?? null;
+    } catch {
+      return null;
     }
   }
 
@@ -597,6 +722,375 @@ export class HikvisionAdapter implements IDeviceAdapter {
     }
   }
 
+  // ── Legacy Person Methods (XML-based, kept for interface compliance) ──────
+
+  async deletePerson(employeeNo: string): Promise<void> {
+    try {
+      const response = await digestRequest(
+        `${this.baseUrl}/ISAPI/AccessControl/UserInfo/1?employeeNo=${encodeURIComponent(employeeNo)}`,
+        this.config.username,
+        this.config.password,
+        "DELETE",
+        undefined,
+        "application/xml; charset=utf-8",
+        this.config.rejectUnauthorized
+      );
+
+      // 404 = persona no existe, no es error
+      if (response.status === 404) {
+        return;
+      }
+
+      if (response.status !== 200 && response.status !== 204) {
+        throw new Error(`Failed to delete person: ${response.status}`);
+      }
+    } catch (err) {
+      // Ignorar errores de conexión
+      log.warn("hikvision", "Error deleting person", { employeeNo, error: (err as Error).message });
+    }
+  }
+
+  async getPersons(): Promise<Person[]> {
+    // Use JSON POST search endpoint which is supported
+    // DS-K1T320MFWX supports /ISAPI/AccessControl/UserInfo/Search?format=json
+    try {
+      const body = {
+        UserInfoSearchCond: {
+          searchID: `persons_${Date.now()}`,
+          searchResultPosition: 0,
+          maxResults: 100,
+          EmployeeNoList: [],  // Empty = all persons
+        },
+      };
+
+      const response = await digestRequest(
+        `${this.baseUrl}/ISAPI/AccessControl/UserInfo/Search?format=json`,
+        this.config.username,
+        this.config.password,
+        "POST",
+        JSON.stringify(body),
+        "application/json",
+        this.config.rejectUnauthorized
+      );
+
+      if (response.status !== 200) {
+        log.warn("hikvision", "getPersons failed", { status: response.status });
+        return [];
+      }
+
+      const data = JSON.parse(response.body);
+      const searchResult = data?.UserInfoSearch;
+
+      if (!searchResult || searchResult.responseStatusStrg !== "OK") {
+        return [];
+      }
+
+      const personsList = searchResult.UserInfo;
+      if (!personsList || !Array.isArray(personsList)) {
+        return [];
+      }
+
+      return personsList.map((p: any) => ({
+        id: String(p.employeeNo || ''),
+        employeeId: String(p.employeeNo || ''),
+        employeeNo: String(p.employeeNo || ''),
+        name: String(p.name || 'Unknown'),
+        cardNumber: p.cardNo ? String(p.cardNo) : undefined,
+        status: 'active' as const,
+      }));
+    } catch (err) {
+      log.warn("hikvision", "Could not list persons", { error: (err as Error).message });
+      return [];
+    }
+  }
+
+  // ── JSON Person Operations (ISAPI) ─────────────────────────────────────────
+
+/**
+   * Find the next available employee number on the device.
+   * Scans existing employee numbers and returns the smallest positive integer not in use.
+   */
+  async getNextAvailableEmployeeNo(): Promise<string | null> {
+    try {
+      const persons = await this.getPersons();
+      const usedNumbers = new Set<number>();
+
+      for (const person of persons) {
+        const num = parseInt(person.employeeNo || '0', 10);
+        if (!isNaN(num) && num > 0) {
+          usedNumbers.add(num);
+        }
+      }
+
+      // Find the smallest positive integer not in use
+      let next = 1;
+      while (usedNumbers.has(next)) {
+        next++;
+      }
+
+      return String(next);
+    } catch (err) {
+      log.warn("hikvision", "Failed to get next available employeeNo", { error: (err as Error).message });
+      return null;
+    }
+  }
+
+  /**
+   * Create a new person on the device via JSON ISAPI.
+   * POST /ISAPI/AccessControl/UserInfo/Record?format=json
+   *
+   * If employeeNo is empty/invalid (e.g., AUTO_xxx), finds next available number on device.
+   * If no employeeNo provided and auto-assign fails, returns failure.
+   */
+  async createPersonOnDevice(person: Person): Promise<SyncResult> {
+    const inputEmployeeNo = person.employeeNo || person.employeeId || '';
+    // Determine the employeeNo to use
+    let employeeNoToUse: string;
+
+    if (inputEmployeeNo && !inputEmployeeNo.startsWith('AUTO_')) {
+      // Use provided valid employeeNo
+      employeeNoToUse = inputEmployeeNo;
+    } else {
+      // No valid employeeNo — find next available on device
+      const availableNo = await this.getNextAvailableEmployeeNo();
+      if (!availableNo) {
+        return {
+          success: false,
+          employeeNo: inputEmployeeNo,
+          error: 'Failed to find available employeeNo on device',
+        };
+      }
+      employeeNoToUse = availableNo;
+    }
+
+    const name = person.name;
+
+    try {
+      const body: Record<string, unknown> = {
+        UserInfo: {
+          employeeNo: employeeNoToUse,
+          name: name,
+          userType: "normal",
+          Valid: {
+            enable: true,
+            beginTime: "2024-01-01T00:00:00",
+            endTime: "2030-12-31T23:59:59",
+          },
+          doorRight: "1",
+          RightPlan: [
+            {
+              doorNo: 1,
+              planTemplateNo: "1",
+            },
+          ],
+        },
+      };
+
+      const response = await digestRequest(
+        `${this.baseUrl}/ISAPI/AccessControl/UserInfo/Record?format=json`,
+        this.config.username,
+        this.config.password,
+        "POST",
+        JSON.stringify(body),
+        "application/json",
+        this.config.rejectUnauthorized
+      );
+
+      if (response.status !== 200 && response.status !== 201) {
+        return {
+          success: false,
+          employeeNo: employeeNoToUse,
+          error: `Create failed: ${response.status}`,
+        };
+      }
+
+return { success: true, employeeNo: employeeNoToUse };
+    } catch (err) {
+      return {
+        success: false,
+        employeeNo: employeeNoToUse,
+        error: (err as Error).message,
+      };
+    }
+  }
+
+  /**
+   * Search for a person on device by employeeNo.
+   * POST /ISAPI/AccessControl/UserInfo/Search?format=json
+   * Returns the person if found, null if not found.
+   */
+  async searchPersonOnDevice(employeeNo: string): Promise<DevicePerson | null> {
+    try {
+      const body = {
+        UserInfoSearchCond: {
+          searchID: `search_${Date.now()}`,
+          searchResultPosition: 0,
+          maxResults: 10,
+          EmployeeNoList: [{ employeeNo }],
+        },
+      };
+
+      const response = await digestRequest(
+        `${this.baseUrl}/ISAPI/AccessControl/UserInfo/Search?format=json`,
+        this.config.username,
+        this.config.password,
+        "POST",
+        JSON.stringify(body),
+        "application/json",
+        this.config.rejectUnauthorized
+      );
+
+      if (response.status !== 200) {
+        log.warn("hikvision", "searchPersonOnDevice failed", { status: response.status, employeeNo });
+        return null;
+      }
+
+      const data = JSON.parse(response.body);
+      const searchResult = data?.UserInfoSearch;
+
+      if (!searchResult || searchResult.responseStatusStrg !== "OK") {
+        return null;
+      }
+
+      const persons = searchResult.UserInfo;
+      if (!persons || persons.length === 0) {
+        return null;
+      }
+
+      // Return first match
+      const p = persons[0];
+      return {
+        employeeNo: p.employeeNo,
+        name: p.name,
+        userType: p.userType,
+        doorRight: p.doorRight,
+        numOfCard: p.numOfCard ?? 0,
+        numOfFP: p.numOfFP ?? 0,
+        numOfFace: p.numOfFace ?? 0,
+      };
+    } catch (err) {
+      log.warn("hikvision", "searchPersonOnDevice error", { error: (err as Error).message, employeeNo });
+      return null;
+    }
+  }
+
+  /**
+   * Update an existing person on the device via JSON ISAPI.
+   * PUT /ISAPI/AccessControl/UserInfo/Modify?format=json
+   */
+  async updatePersonOnDevice(person: Person): Promise<SyncResult> {
+    const employeeNo = person.employeeNo || person.employeeId || '';
+
+    try {
+      const body = {
+        UserInfo: {
+          employeeNo: employeeNo,
+          name: person.name,
+          userType: "normal",
+          Valid: {
+            enable: true,
+            beginTime: "2024-01-01T00:00:00",
+            endTime: "2030-12-31T23:59:59",
+          },
+          doorRight: "1",
+          RightPlan: [
+            {
+              doorNo: 1,
+              planTemplateNo: "1",
+            },
+          ],
+        },
+      };
+
+      const response = await digestRequest(
+        `${this.baseUrl}/ISAPI/AccessControl/UserInfo/Modify?format=json`,
+        this.config.username,
+        this.config.password,
+        "PUT",
+        JSON.stringify(body),
+        "application/json",
+        this.config.rejectUnauthorized
+      );
+
+      if (response.status !== 200 && response.status !== 201) {
+        return {
+          success: false,
+          employeeNo,
+          error: `Update failed: ${response.status}`,
+        };
+      }
+
+      return { success: true, employeeNo };
+    } catch (err) {
+      return {
+        success: false,
+        employeeNo,
+        error: (err as Error).message,
+      };
+    }
+  }
+
+  /**
+   * Assign a card to an existing person on the device.
+   * POST /ISAPI/AccessControl/CardInfo/Record?format=json
+   */
+  async assignCardToDevice(employeeNo: string, cardNo: string): Promise<SyncResult> {
+    try {
+      const body = {
+        CardInfo: {
+          employeeNo: employeeNo,
+          cardNo: cardNo,
+          cardType: "normalCard",
+        },
+      };
+
+      const response = await digestRequest(
+        `${this.baseUrl}/ISAPI/AccessControl/CardInfo/Record?format=json`,
+        this.config.username,
+        this.config.password,
+        "POST",
+        JSON.stringify(body),
+        "application/json",
+        this.config.rejectUnauthorized
+      );
+
+      if (response.status !== 200 && response.status !== 201) {
+        return {
+          success: false,
+          employeeNo,
+          error: `Card assign failed: ${response.status}`,
+        };
+      }
+
+      return { success: true, employeeNo };
+    } catch (err) {
+      return {
+        success: false,
+        employeeNo,
+        error: (err as Error).message,
+      };
+    }
+  }
+
+  /**
+   * Sync person: search first, then update or create.
+   * This implements the search→update/create pattern per validated ISAPI docs.
+   */
+  async syncPerson(person: Person): Promise<SyncResult> {
+    const employeeNo = person.employeeNo || person.employeeId || '';
+
+    // Step 1: Search to see if person exists on device
+    const existing = await this.searchPersonOnDevice(employeeNo);
+
+    if (existing) {
+      // Step 2a: Person exists — update
+      return this.updatePersonOnDevice(person);
+    } else {
+      // Step 2b: Person doesn't exist — create
+      return this.createPersonOnDevice(person);
+    }
+  }
+
   // ── Health ────────────────────────────────────────────────────────────────
 
   async healthCheck(): Promise<HealthCheckResult> {
@@ -647,7 +1141,26 @@ export class HikvisionAdapter implements IDeviceAdapter {
     }
   }
 
-  private mapVerifyMode(code: number): string {
+  private mapVerifyMode(code: string | number | undefined): string {
+    // DS-K1T320MFWX returns string codes like "invalid", "cardOrFaceOrFp"
+    if (typeof code === "string") {
+      const stringModes: Record<string, string> = {
+        invalid: "invalid",
+        password: "password",
+        card: "card",
+        fingerprint: "fingerprint",
+        face: "face",
+        cardAndPassword: "card_and_password",
+        cardAndFingerprint: "card_and_fingerprint",
+        faceAndPassword: "face_and_password",
+        cardOrFaceOrFp: "card_or_face_or_fp",
+      };
+      return stringModes[code] || code;
+    }
+    // Numeric codes for backward compatibility
+    if (code === undefined) {
+      return "unknown";
+    }
     const modes: Record<number, string> = {
       1: "password",
       2: "card",

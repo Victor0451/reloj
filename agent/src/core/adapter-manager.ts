@@ -28,6 +28,8 @@ export interface DeviceConfig {
   username?: string;
   /** Contraseña (idealmente encriptada) */
   password?: string;
+  /** Permite certificados autofirmados o expirados */
+  allowSelfSignedCert?: boolean;
 }
 
 export class AdapterManager {
@@ -81,6 +83,7 @@ export class AdapterManager {
       username: device.username,
       password: device.password,
       serialNumber: device.serialNumber,
+      rejectUnauthorized: device.allowSelfSignedCert ? false : true,
     };
 
     const adapter = new AdapterClass(config);

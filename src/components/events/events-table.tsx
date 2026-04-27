@@ -43,7 +43,31 @@ interface EventsTableProps {
 const eventTypeLabels: Record<string, string> = {
   '0': 'Entrada',
   '1': 'Salida',
-  // Add more mappings as needed
+  // New labels from device event types
+  'checkIn': 'Entrada',
+  'checkOut': 'Salida',
+  'overTimeOut': 'Salida ext.',
+  'attendance_unknown': 'Evento',
+  'duress_alarm': 'Alarma',
+  'access_granted': 'Permitido',
+  'access_denied': 'Denegado',
+}
+
+function getEventTypeVariant(eventType: string): 'success' | 'warning' | 'destructive' | 'secondary' {
+  switch (eventType) {
+    case '0':
+    case 'checkIn':
+      return 'success'
+    case '1':
+    case 'checkOut':
+    case 'overTimeOut':
+      return 'warning'
+    case 'access_denied':
+    case 'duress_alarm':
+      return 'destructive'
+    default:
+      return 'secondary'
+  }
 }
 
 function formatEventType(value: string): string {
@@ -232,6 +256,37 @@ export default function EventsTable({
     [dateFrom, dateTo, eventType, employeeSearch, router]
   )
 
+  // Fetch with explicit filters (avoids stale state closure)
+  const fetchDataWithFilters = useCallback(
+    async (filters: EventFilters, cursor?: string) => {
+      setLoading(true)
+      try {
+        const result = await listEvents(filters, cursor)
+
+        setEvents(result.events)
+        setNextCursor(result.nextCursor)
+        setHasMore(result.hasMore)
+        setTotalCount(result.totalCount)
+
+        // Update URL params
+        const params = new URLSearchParams()
+        if (filters.dateStart) params.set('dateFrom', filters.dateStart)
+        if (filters.dateEnd) params.set('dateTo', filters.dateEnd)
+        if (filters.eventType) params.set('eventType', filters.eventType)
+        if (filters.employeeId) params.set('employee', filters.employeeId)
+        if (cursor) params.set('cursor', cursor)
+
+        router.replace(`?${params.toString()}`, { scroll: false })
+      } catch (error) {
+        console.error('Error fetching events:', error)
+        toast.error('Error al cargar eventos')
+      } finally {
+        setLoading(false)
+      }
+    },
+    [router]
+  )
+
   // Debounced employee search
   const debouncedFetch = useDebouncedCallback(() => {
     // Validate date range
@@ -259,7 +314,15 @@ export default function EventsTable({
     setEventType(value)
     setCursorHistory([])
     setPrevCursor(null)
-    fetchData()
+
+    // Pass filters directly instead of relying on state (setEventType is async)
+    const filters: EventFilters = {
+      dateStart: dateFrom || undefined,
+      dateEnd: dateTo || undefined,
+      eventType: value || undefined,
+      employeeId: employeeSearch || undefined,
+    }
+    fetchDataWithFilters(filters)
   }
 
   function handleEmployeeSearchChange(value: string) {
@@ -304,7 +367,7 @@ export default function EventsTable({
     setEmployeeSearch('')
     setCursorHistory([])
     setPrevCursor(null)
-    fetchData()
+    fetchDataWithFilters({})
   }
 
   // Export CSV
@@ -499,7 +562,7 @@ export default function EventsTable({
                     </TableCell>
                     <TableCell>
                       <Badge
-                        variant={event.event_type === '0' ? 'success' : 'secondary'}
+                        variant={getEventTypeVariant(event.event_type)}
                         className="rounded-full px-2 py-0.5 font-bold uppercase text-[9px]"
                       >
                         {formatEventType(event.event_type)}
