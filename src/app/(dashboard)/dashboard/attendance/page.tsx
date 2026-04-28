@@ -13,6 +13,7 @@ import { listPersons } from '@/actions/persons'
 import type { AttendanceFilters, AttendanceDay, TimeTemplate } from '@/types/attendance.types'
 import type { PersonRecord } from '@/types/person.types'
 import { exportToCsv } from '@/lib/utils'
+import { EmployeeSelect } from '@/components/ui/employee-select'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 
@@ -127,19 +128,13 @@ export default function AttendancePage() {
                 className="w-40"
               />
             </div>
-            <div className="flex flex-col gap-1 flex-1 min-w-[200px]">
-              <label className="text-xs font-medium">Empleados</label>
-              <select
-                multiple
-                className="h-10 rounded-lg border border-border bg-card px-3 text-sm"
-                value={selectedPersons}
-                onChange={(e) => setSelectedPersons(Array.from(e.target.selectedOptions, o => o.value))}
-              >
-                {persons.map(p => (
-                  <option key={p.id} value={p.id}>{p.name}</option>
-                ))}
-              </select>
-            </div>
+            <EmployeeSelect
+              persons={persons}
+              selected={selectedPersons}
+              onChange={setSelectedPersons}
+              placeholder="Buscar empleados..."
+              className="flex-1 min-w-[200px]"
+            />
             <Button onClick={handleSearch} disabled={loading}>
               <Search className="h-4 w-4 mr-2" />
               Buscar

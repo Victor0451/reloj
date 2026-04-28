@@ -31,10 +31,12 @@ import {
   Users, 
   Clock, 
   FileText, 
-  DoorOpen, 
-  Monitor, 
-  Shield, 
-  Fingerprint 
+  DoorOpen,
+  Monitor,
+  Shield,
+  Fingerprint,
+  CalendarCheck,
+  ClipboardList,
 } from 'lucide-react'
 
 interface AppSidebarProps {
@@ -51,6 +53,9 @@ const menuItems = [
   { title: 'Reportes', href: '/dashboard/reports', icon: FileText },
   { title: 'Control de Puerta', href: '/dashboard/door-control', icon: DoorOpen },
   { title: 'Relojes', href: '/dashboard/devices', icon: Monitor },
+  { title: 'Horarios', href: '/dashboard/schedules', icon: CalendarCheck },
+  { title: 'Asignaciones', href: '/dashboard/schedule-assignments', icon: ClipboardList },
+  { title: 'Asistencia', href: '/dashboard/attendance', icon: Clock },
   { title: 'Auditoría', href: '/dashboard/audit', icon: Shield },
   { title: 'Configuración', href: '/dashboard/settings', icon: Settings },
 ]
