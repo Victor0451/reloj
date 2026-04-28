@@ -79,13 +79,13 @@ async function KpiCards() {
   ])
 
   // Fetch all devices for connectivity summary
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   const { data: devices } = await supabase
     .from('devices')
     .select('status') as any
 
   // Fetch door status
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   const { data: doorStatus } = await supabase
     .from('door_commands')
     .select('status, action')
@@ -233,7 +233,7 @@ export default async function DashboardPage() {
     .filter((id: string | null): id is string => id !== null && id !== undefined)
 
   // Fetch person names in batch
-  let personNameMap = new Map<string, string | null>()
+  const personNameMap = new Map<string, string | null>()
   if (employeeIds.length > 0) {
     const uniqueIds = [...new Set(employeeIds)]
     const personsResult = await admin

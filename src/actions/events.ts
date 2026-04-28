@@ -143,7 +143,7 @@ export async function listEvents(
     .map((r) => r.employee_id)
     .filter((id): id is string => id !== null && id !== undefined)
 
-  let personNameMap = new Map<string, string | null>()
+  const personNameMap = new Map<string, string | null>()
 
   if (employeeIds.length > 0) {
     const personsResult = await admin
@@ -183,7 +183,7 @@ export async function listEvents(
 export async function countEvents(filters: EventFilters = {}): Promise<number> {
   const admin = createAdminClient()
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   let query: any = admin
     .from('access_events')
     .select('*', { count: 'exact', head: true })
@@ -219,7 +219,7 @@ export async function exportEventsCsv(
 ): Promise<string> {
   const admin = createAdminClient()
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   let query: any = admin
     .from('access_events')
     .select(
@@ -257,7 +257,7 @@ export async function exportEventsCsv(
     .map((r) => r.employee_id)
     .filter((id): id is string => id !== null && id !== undefined)
 
-  let personNameMap = new Map<string, string | null>()
+  const personNameMap = new Map<string, string | null>()
 
   if (employeeIds.length > 0) {
     const uniqueIds = [...new Set(employeeIds)]

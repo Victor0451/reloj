@@ -45,7 +45,7 @@ export async function checkInactiveDevices(minutesWithoutContact: number = 5) {
     const cutoffTime = new Date(Date.now() - minutesWithoutContact * 60 * 1000).toISOString()
     
     // Obtener dispositivos que no han sido vistos desde cutoffTime
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     const { data: inactiveDevices, error } = await supabase
       .from('devices')
       .select('id, name, last_seen_at')

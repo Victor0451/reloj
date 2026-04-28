@@ -253,7 +253,7 @@ export async function exportAttendanceExcel(
 export async function exportAttendancePDF(
   _filters: ReportFilters
 ): Promise<Blob> {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
+   
   let pdfRendererAvailable = false
   try {
     require('@react-pdf/renderer')
