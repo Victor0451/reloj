@@ -1,3 +1,5 @@
+export type PersonStatus = 'active' | 'inactive' | 'pending_sync' | 'sync_failed' | 'sync_dead_letter'
+
 export interface PersonRecord {
   id: string
   employee_id: string | null
@@ -6,7 +8,9 @@ export interface PersonRecord {
   card_number: string | null
   face_photo_url: string | null
   device_employee_no: number | null
-  status: 'active' | 'inactive' | 'pending_sync'
+  status: PersonStatus
+  sync_attempts: number
+  sync_error: string | null
   created_at: string
   updated_at: string
 }
@@ -19,7 +23,7 @@ export interface CreatePersonInput {
   face_photo_url?: string
 }
 
-export interface UpdatePersonInput extends Partial<CreatePersonInput> {}
+export type UpdatePersonInput = Partial<CreatePersonInput>
 
 export interface ListPersonsOptions {
   page?: number

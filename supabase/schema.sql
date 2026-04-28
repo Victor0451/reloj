@@ -28,6 +28,9 @@ CREATE TABLE persons (
   face_photo_url TEXT,
   device_employee_no INTEGER,
   status person_status NOT NULL DEFAULT 'pending_sync',
+  last_retry_at TIMESTAMPTZ,
+  sync_attempts INTEGER DEFAULT 0,
+  sync_error TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

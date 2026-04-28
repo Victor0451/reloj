@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { toast } from 'sonner'
-import { listPersons, createPerson, updatePerson, deletePerson, reactivatePerson } from '@/actions/persons'
+import { listPersons, createPerson, updatePerson, deletePerson, reactivatePerson, resetPersonSync, discardPerson } from '@/actions/persons'
 import type { PersonRecord, CreatePersonInput, UpdatePersonInput } from '@/types/person.types'
 import PersonsTableServer from '@/components/persons/persons-table'
 import { PersonDialog } from '@/components/persons/person-dialog'
@@ -24,7 +24,6 @@ export function PersonsClient({
 
   // Data state
   const [data, setData] = useState(initialData)
-  const [tableKey, setTableKey] = useState(0)
   const [isRealtimeConnected, setIsRealtimeConnected] = useState(false)
   const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null)
   const channelRef = useRef<ReturnType<ReturnType<typeof createClient>['channel']> | null>(null)
@@ -34,16 +33,15 @@ export function PersonsClient({
     supabaseRef.current = createClient()
   }
 
-  const refreshData = useCallback(async (page: number = data.page) => {
+  const refreshData = useCallback(async (page?: number) => {
+    const currentPage = page ?? data.page
     try {
       const result = await listPersons({
-        page,
+        page: currentPage,
       })
       setData(result)
-      setTableKey((k) => k + 1) // Force re-render de la tabla
     } catch (err) {
       console.error('Failed to refresh data:', err)
-      toast.error('Error al cargar las personas')
     }
   }, [data.page])
 
@@ -57,6 +55,10 @@ export function PersonsClient({
     }, 250)
   }, [data.page, refreshData])
 
+  // Realtime subscription - falls back gracefully if Supabase Realtime is down
+  // Data refreshes happen via: (1) Realtime events → scheduleRefresh(), (2) Post-action refresh in handlers
+
+  // Attempt Realtime subscription (will fail gracefully if Supabase Realtime is down)
   useEffect(() => {
     const supabase = supabaseRef.current
     if (!supabase) return
@@ -81,10 +83,6 @@ export function PersonsClient({
     channelRef.current = channel
 
     return () => {
-      if (refreshTimerRef.current) {
-        clearTimeout(refreshTimerRef.current)
-      }
-
       if (channelRef.current) {
         void supabase.removeChannel(channelRef.current)
       }
@@ -154,6 +152,28 @@ export function PersonsClient({
     }
   }
 
+  async function handleRetry(id: string) {
+    const result = await resetPersonSync(id)
+
+    if (result.success) {
+      toast.success('Persona reintentada - se syncará en breve')
+      await refreshData()
+    } else {
+      toast.error(result.error ?? 'Error al reintentar persona')
+    }
+  }
+
+  async function handleDiscard(id: string) {
+    const result = await discardPerson(id)
+
+    if (result.success) {
+      toast.success('Persona descartada')
+      await refreshData()
+    } else {
+      toast.error(result.error ?? 'Error al descartar persona')
+    }
+  }
+
   function handleNew() {
     setDialogMode('create')
     setEditingPerson(null)
@@ -169,17 +189,18 @@ export function PersonsClient({
   return (
     <>
       <div className="mb-4 flex items-center gap-2 text-xs text-muted-foreground">
-        <span className={`h-2 w-2 rounded-full ${isRealtimeConnected ? 'bg-emerald-500' : 'bg-amber-500 animate-pulse'}`} />
-        {isRealtimeConnected ? 'Personas en vivo' : 'Conectando Realtime...'}
+        <span className={`h-2 w-2 rounded-full ${isRealtimeConnected ? 'bg-emerald-500' : 'bg-amber-500'}`} />
+        {isRealtimeConnected ? 'Realtime' : 'Sin conexión en vivo'}
       </div>
       <PersonsTableServer
-        key={tableKey}
         initialData={data}
         onEdit={handleEditPerson}
         onDeactivate={handleDeactivate}
         onReactivate={handleReactivate}
         onNew={handleNew}
         onImport={() => setCsvDialogOpen(true)}
+        onRetry={handleRetry}
+        onDiscard={handleDiscard}
       />
 
       <PersonDialog
@@ -196,6 +217,14 @@ export function PersonsClient({
                 employee_id: editingPerson.employee_id ?? '',
                 department: editingPerson.department ?? '',
                 card_number: editingPerson.card_number ?? '',
+              }
+            : undefined
+        }
+        syncError={
+          editingPerson?.sync_attempts
+            ? {
+                sync_attempts: editingPerson.sync_attempts,
+                sync_error: editingPerson.sync_error ?? null,
               }
             : undefined
         }

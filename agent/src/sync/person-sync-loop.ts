@@ -154,13 +154,29 @@ async function syncSinglePerson(
   let lastError: string | undefined;
 
   if (existsOnDevice) {
-    // Actualizar existente
-    const result = await adapter.syncPerson(personData);
-    success = result.success;
-    lastError = result.error;
+    // Fetch current DB state to get previousCardNumber for card change detection
+    const { data: dbPerson } = await (supabase as any)
+      .from("persons")
+      .select("card_number")
+      .eq("id", person.id)
+      .single();
+
+    const previousCardNumber = dbPerson?.card_number ?? null;
+
+    // If card changed, call updatePersonOnDevice with previous card for proper reassignment
+    if (person.card_number !== previousCardNumber && (adapter as any).updatePersonOnDevice) {
+      const result = await (adapter as any).updatePersonOnDevice(personData, previousCardNumber);
+      success = result.success;
+      lastError = result.error;
+    } else {
+      // No card change — just update basic info
+      const result = await adapter.syncPerson(personData);
+      success = result.success;
+      lastError = result.error;
+    }
 
     if (!success) {
-      log.warn("personSync", `Update failed for person ${person.id}: ${result.error}`);
+      log.warn("personSync", `Update failed for person ${person.id}: ${lastError}`);
     }
   } else {
     // Crear nuevo — usar createPerson si existe el método, si no fallback a syncPerson
@@ -373,28 +389,30 @@ async function cleanupInactivePersons(
   supabase: SupabaseClient,
   deviceId: string
 ): Promise<void> {
-  const { data: inactivePersons, error } = await (supabase as any)
+  // Clean up both inactive and dead-letter persons with device_employee_no set
+  const { data: personsToCleanup, error } = await (supabase as any)
     .from("persons")
-    .select("id, name, device_employee_no")
-    .eq("status", "inactive")
+    .select("id, name, device_employee_no, status")
+    .in("status", ["inactive", "sync_dead_letter"])
     .not("device_employee_no", "is", null)
     .limit(50);
 
-  if (error || !inactivePersons || inactivePersons.length === 0) {
+  if (error || !personsToCleanup || personsToCleanup.length === 0) {
     return;
   }
 
-  log.info("personSync", `Cleaning up ${inactivePersons.length} inactive person(s) from device ${deviceId}`);
+  log.info("personSync", `Cleaning up ${personsToCleanup.length} person(s) from device ${deviceId}`);
 
-  for (const person of inactivePersons) {
+  for (const person of personsToCleanup) {
     try {
       const empNo = String(person.device_employee_no);
 
       await adapter.deletePerson(empNo);
 
+      // Clear device_employee_no and ensure status is inactive (not dead-letter)
       await (supabase as any)
         .from("persons")
-        .update({ device_employee_no: null })
+        .update({ device_employee_no: null, status: "inactive" })
         .eq("id", person.id);
 
       log.info("personSync", `Removed person ${person.id} (${person.name}) from device`);
@@ -463,23 +481,23 @@ export function startSingleDevicePersonSync(
         }
       }
 
-      // Limpiar inactivos
-      const { data: inactivePersons } = await (supabase as any)
+      // Limpiar inactivos y dead-letters
+      const { data: personsToCleanup } = await (supabase as any)
         .from("persons")
-        .select("id, name, device_employee_no")
-        .eq("status", "inactive")
+        .select("id, name, device_employee_no, status")
+        .in("status", ["inactive", "sync_dead_letter"])
         .not("device_employee_no", "is", null)
         .limit(20);
 
-      if (inactivePersons && inactivePersons.length > 0) {
-        for (const person of inactivePersons) {
+      if (personsToCleanup && personsToCleanup.length > 0) {
+        for (const person of personsToCleanup) {
           try {
             const empNo = String(person.device_employee_no);
             await adapter.deletePerson(empNo);
 
             await (supabase as any)
               .from("persons")
-              .update({ device_employee_no: null })
+              .update({ device_employee_no: null, status: "inactive" })
               .eq("id", person.id);
           } catch {
             // Ignore individual failures

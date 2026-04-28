@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-04-28
+
+### 🎯 Features
+
+- **Event Pagination in Agent Bridge**: Hikvision adapter now paginates through all events using ISAPI searchResultPosition pattern. Previously only fetched first page (oldest events), missing new events in circular buffer.
+
+### 🐛 Bug Fixes
+
+- **Event Sync Only Fetching Oldest Events**: Fixed pagination loop in HikvisionAdapter.getEvents(). Agent now accumulates all pages until responseStatusStrg != "MORE".
+- **Time Filter Not Activating**: event-sync-loop now passes both startTime AND endTime to adapter, activating the device-side time filter.
+- **Realtime person_name Always Null**: Fixed events-table.tsx to resolve person_name from person_id or employee_id via Supabase query on realtime INSERT.
+- **Dropzone Button Render Warning**: Removed render={<button>} from DropdownMenuItem components in persons-table.tsx.
+- **Polling 5s Interfering with Edit Dialog**: Removed setInterval polling fallback. Now relies on Realtime subscription only (Supabase Realtime recovered).
+
+### 🗄️ Database
+
+- **Migration 011**: Added event metadata columns to access_events: device_serial_no, door_no, card_reader_no, label
+- **Migration 012**: Fixed RLS on access_events to allow anon key read access for frontend dashboard
+- **Migration 013**: Added unique constraint on (employee_id, event_time, device_serial) for event deduplication
+- **Migration 010**: Added sync_failed and sync_dead_letter to person_status enum
+
+### ⚙️ Agent Bridge
+
+- **Device Password Fixed**: Corrected device password from evol@0126 to evol@2601 in .env
+- **Dead Letter Management**: Implemented retry (30s debounce via last_retry_at) and discard functionality for failed syncs
+
 ## [0.2.0] - 2026-04-27
 
 ### 🎯 Features

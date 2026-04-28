@@ -18,7 +18,9 @@ export type Database = {
           card_number: string | null
           face_photo_url: string | null
           device_employee_no: number | null
-          status: 'active' | 'inactive' | 'pending_sync'
+          status: 'active' | 'inactive' | 'pending_sync' | 'sync_failed' | 'sync_dead_letter'
+          sync_attempts: number
+          sync_error: string | null
           created_at: string
           updated_at: string
         }
@@ -30,7 +32,9 @@ export type Database = {
           card_number?: string | null
           face_photo_url?: string | null
           device_employee_no?: number | null
-          status?: 'active' | 'inactive' | 'pending_sync'
+          status?: 'active' | 'inactive' | 'pending_sync' | 'sync_failed' | 'sync_dead_letter'
+          sync_attempts?: number
+          sync_error?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -42,7 +46,9 @@ export type Database = {
           card_number?: string | null
           face_photo_url?: string | null
           device_employee_no?: number | null
-          status?: 'active' | 'inactive' | 'pending_sync'
+          status?: 'active' | 'inactive' | 'pending_sync' | 'sync_failed' | 'sync_dead_letter'
+          sync_attempts?: number
+          sync_error?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -286,7 +292,7 @@ export type Database = {
       [_ in never]: never
     }
     Enums: {
-      person_status: 'active' | 'inactive' | 'pending_sync'
+      person_status: 'active' | 'inactive' | 'pending_sync' | 'sync_failed' | 'sync_dead_letter'
       device_status: 'online' | 'offline' | 'unknown'
       user_role: 'admin' | 'hr_operator' | 'supervisor' | 'technician'
     }

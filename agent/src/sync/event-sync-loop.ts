@@ -286,7 +286,8 @@ export function startSingleDeviceEventSync(
   } = options;
 
   let isRunning = true;
-  let lastSyncTime = new Date(Date.now() - safetyWindowMs);
+  let lastSyncTime = new Date(Date.now() - 86400000); // 24 hours
+  let latestSerialNo = 0;
   const dedupKeys = new Set<string>();
 
   async function syncEvents() {
@@ -322,6 +323,7 @@ export function startSingleDeviceEventSync(
 
       const events = await adapter.getEvents({
         startTime: lastSyncTime,
+        endTime: new Date(),
         maxResults,
       });
 
@@ -340,6 +342,20 @@ export function startSingleDeviceEventSync(
       }
 
       log.info("eventSync", `Fetched ${events.length} events`, { deviceId, brand: deviceBrand });
+
+      if (events.length === 0) {
+        log.info("eventSync", "No events to insert", { deviceId });
+        await (supabase as any)
+          .from("devices")
+          .update({
+            sync_status: "synced",
+            sync_last_at: new Date().toISOString(),
+            sync_error: null,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", deviceId);
+        return;
+      }
 
       let inserted = 0;
       let skipped = 0;
@@ -397,7 +413,14 @@ for (const event of events) {
             });
 
           if (error) {
-            log.error("eventSync", "Failed to insert event", { error: error.message });
+            log.error("eventSync", "Failed to insert event", { 
+              error: error.message, 
+              code: error.code,
+              details: error.details,
+              hint: error.hint,
+              employeeId: event.employeeId,
+              eventType: event.eventType,
+            });
             skipped++;
           } else {
             log.info("eventSync", "Event saved", {
@@ -407,12 +430,17 @@ for (const event of events) {
             });
             inserted++;
           }
+
+          // Track latest serialNo for next sync
+          if (event.raw && typeof event.raw === 'object' && (event.raw as any).serialNo > latestSerialNo) {
+            latestSerialNo = (event.raw as any).serialNo;
+          }
         }
 
       lastSyncTime = new Date();
 
       if (inserted > 0) {
-        log.info("eventSync", `${inserted} events inserted, ${skipped} skipped`, { deviceId });
+        log.info("eventSync", `${inserted} events inserted, ${skipped} skipped`, { deviceId, latestSerialNo });
       }
 
       await (supabase as any)

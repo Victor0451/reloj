@@ -118,7 +118,7 @@ function ReviewCard({
             className="flex-1 text-muted-foreground hover:text-foreground"
           >
             <ThumbsDown className="size-3.5 mr-1" />
-            no, didn't help
+            no, didn&apos;t help
           </Button>
         </div>
       </div>

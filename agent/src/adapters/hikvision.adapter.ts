@@ -55,10 +55,10 @@ function parseXmlResponse(xml: string): Record<string, unknown> {
 function extractXmlText(xml: string, path: string[]): string | undefined {
   const tagRegex = /<(\w+)>([^<]*)<\/\1>/g;
   let match;
-  let current: Record<string, unknown> = {};
+  const current: Record<string, unknown> = {};
   const stack: Record<string, unknown>[] = [current];
   
-  let depth = 0;
+  const depth = 0;
   const openTags: string[] = [];
   
   // Simple approach: extract text from specific paths
@@ -430,9 +430,13 @@ export class HikvisionAdapter implements IDeviceAdapter {
     // Note: Even with explicit time filters, some devices may still reject them.
     const hasTimeFilter = options?.startTime !== undefined && options?.endTime !== undefined;
 
+    let position = 0;
+    const maxPages = 10;
+    const allEvents: AccessEvent[] = [];
+
     const acsEventCond: Record<string, unknown> = {
       searchID: `sync_${Date.now()}`,
-      searchResultPosition: 0,
+      searchResultPosition: position,
       maxResults: Math.min(maxResults, 200),
       major: 5,
       minor: 38,
@@ -448,23 +452,43 @@ export class HikvisionAdapter implements IDeviceAdapter {
     const jsonBody = JSON.stringify({ AcsEventCond: acsEventCond });
 
     try {
-      // Try JSON endpoint
-      const jsonResponse = await digestRequest(
-        `${this.baseUrl}/ISAPI/AccessControl/AcsEvent?format=json`,
-        this.config.username,
-        this.config.password,
-        "POST",
-        jsonBody,
-        "application/json",
-        this.config.rejectUnauthorized
-      );
+      // Try JSON endpoint with pagination loop
+      while (true) {
+        acsEventCond.searchResultPosition = position;
+        const jsonBody = JSON.stringify({ AcsEventCond: acsEventCond });
 
-      if (jsonResponse.status === 200) {
-        const data = JSON.parse(jsonResponse.body);
-        return this.parseJsonEvents(data);
+        const jsonResponse = await digestRequest(
+          `${this.baseUrl}/ISAPI/AccessControl/AcsEvent?format=json`,
+          this.config.username,
+          this.config.password,
+          "POST",
+          jsonBody,
+          "application/json",
+          this.config.rejectUnauthorized
+        );
+
+        if (jsonResponse.status === 200) {
+          const data = JSON.parse(jsonResponse.body);
+          allEvents.push(...this.parseJsonEvents(data));
+
+          // Check if there are more results
+          if (data?.AcsEvent?.responseStatusStrg === "MORE" && position < maxPages * 200) {
+            position += data.AcsEvent.numOfMatches;
+            continue;
+          }
+          break;
+        }
+
+        // If JSON fails with non-200, break to try XML
+        break;
       }
 
-      // If JSON fails, try XML format
+      // If we got events from JSON, return them
+      if (allEvents.length > 0) {
+        return allEvents;
+      }
+
+      // JSON returned no events, try XML format
       const xmlBody = `<?xml version="1.0" encoding="utf-8"?>
 <searchEvents>
   <searchID>1</searchID>
@@ -977,8 +1001,11 @@ return { success: true, employeeNo: employeeNoToUse };
   /**
    * Update an existing person on the device via JSON ISAPI.
    * PUT /ISAPI/AccessControl/UserInfo/Modify?format=json
+   *
+   * If cardNumber changed (previousCardNumber provided and differs), also reassigns card.
+   * Handles card conflict: if card already assigned to another employee, removes it first.
    */
-  async updatePersonOnDevice(person: Person): Promise<SyncResult> {
+  async updatePersonOnDevice(person: Person, previousCardNumber?: string | null): Promise<SyncResult> {
     const employeeNo = person.employeeNo || person.employeeId || '';
 
     try {
@@ -1020,6 +1047,30 @@ return { success: true, employeeNo: employeeNoToUse };
         };
       }
 
+      // Card reassignment: if card changed, assign new card (handles conflicts)
+      const currentCard = previousCardNumber ?? null;
+      if (person.cardNumber !== currentCard) {
+        if (person.cardNumber) {
+          // Check if card exists on another employee — if so, delete it first
+          const existingOwner = await this.findEmployeeByCard(person.cardNumber);
+          if (existingOwner && existingOwner !== employeeNo) {
+            log.info("hikvision", `Card ${person.cardNumber} already assigned to ${existingOwner}, removing first`);
+            await this.deleteCardInfo(existingOwner, person.cardNumber);
+          }
+
+          // Assign card to this employee
+          const cardResult = await this.assignCardToDevice(employeeNo, person.cardNumber);
+          if (!cardResult.success) {
+            return {
+              success: false,
+              employeeNo,
+              error: `UserInfo updated but card assign failed: ${cardResult.error}`,
+            };
+          }
+        }
+        // If new card is empty but old existed — card stays on device (not removed)
+      }
+
       return { success: true, employeeNo };
     } catch (err) {
       return {
@@ -1027,6 +1078,80 @@ return { success: true, employeeNo: employeeNoToUse };
         employeeNo,
         error: (err as Error).message,
       };
+    }
+  }
+
+  /**
+   * Find employeeNo that currently owns a card on the device.
+   * Returns employeeNo if found, null if card is not assigned.
+   */
+  private async findEmployeeByCard(cardNo: string): Promise<string | null> {
+    try {
+      const body = {
+        CardInfoSearchCond: {
+          searchID: `card_${Date.now()}`,
+          searchResultPosition: 0,
+          maxResults: 10,
+          CardNoList: [{ cardNo }],
+        },
+      };
+
+      const response = await digestRequest(
+        `${this.baseUrl}/ISAPI/AccessControl/CardInfo/Search?format=json`,
+        this.config.username,
+        this.config.password,
+        "POST",
+        JSON.stringify(body),
+        "application/json",
+        this.config.rejectUnauthorized
+      );
+
+      if (response.status !== 200) {
+        return null;
+      }
+
+      const data = JSON.parse(response.body);
+      const searchResult = data?.CardInfoSearch;
+
+      if (!searchResult || searchResult.responseStatusStrg !== "OK") {
+        return null;
+      }
+
+      const cards = searchResult.CardInfo;
+      if (!cards || cards.length === 0) {
+        return null;
+      }
+
+      return cards[0].employeeNo ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Delete card info for a specific employee from the device.
+   * DELETE /ISAPI/AccessControl/CardInfo/Record?format=json
+   */
+  private async deleteCardInfo(employeeNo: string, cardNo: string): Promise<void> {
+    try {
+      const body = {
+        CardInfoDelCond: {
+          employeeNo,
+          cardNoList: [cardNo],
+        },
+      };
+
+      await digestRequest(
+        `${this.baseUrl}/ISAPI/AccessControl/CardInfo/Record?format=json`,
+        this.config.username,
+        this.config.password,
+        "DELETE",
+        JSON.stringify(body),
+        "application/json",
+        this.config.rejectUnauthorized
+      );
+    } catch (err) {
+      log.warn("hikvision", "Failed to delete card info", { employeeNo, cardNo, error: (err as Error).message });
     }
   }
 

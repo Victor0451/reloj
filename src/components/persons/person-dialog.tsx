@@ -12,7 +12,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Loader2 } from 'lucide-react'
+import { Loader2, AlertTriangle } from 'lucide-react'
 
 interface PersonFormData {
   name: string
@@ -21,11 +21,34 @@ interface PersonFormData {
   card_number: string
 }
 
+interface SyncErrorBannerProps {
+  sync_attempts: number
+  sync_error: string | null
+}
+
+function SyncErrorBanner({ sync_attempts, sync_error }: SyncErrorBannerProps) {
+  if (sync_attempts === 0) return null
+
+  return (
+    <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm">
+      <div className="flex items-center gap-2">
+        <AlertTriangle className="h-4 w-4 text-destructive flex-shrink-0" />
+        <span className="font-semibold text-destructive">Error de sincronización</span>
+        <span className="text-muted-foreground">(Intento {sync_attempts}/3)</span>
+      </div>
+      {sync_error && (
+        <p className="mt-1 text-xs text-destructive/80 pl-6">{sync_error}</p>
+      )}
+    </div>
+  )
+}
+
 interface PersonDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   mode: 'create' | 'edit'
   initialData?: PersonFormData
+  syncError?: SyncErrorBannerProps
   onSubmit: (data: PersonFormData) => Promise<void>
 }
 
@@ -34,6 +57,7 @@ export function PersonDialog({
   onOpenChange,
   mode,
   initialData,
+  syncError,
   onSubmit,
 }: PersonDialogProps) {
   const defaultFormData: PersonFormData = {
@@ -99,6 +123,13 @@ useEffect(() => {
               : 'Modificá los datos de la persona.'}
           </DialogDescription>
         </DialogHeader>
+
+        {syncError && (
+          <SyncErrorBanner
+            sync_attempts={syncError.sync_attempts}
+            sync_error={syncError.sync_error}
+          />
+        )}
 
         <div className="space-y-4 py-4">
           {/* Name */}

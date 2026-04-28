@@ -23,7 +23,7 @@ async function checkRole(allowedRoles: string[]): Promise<ActionResult> {
   // Use admin client (bypasses RLS) for profile lookup
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const admin: any = createAdminClient()
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   const { data: profile, error: profileError } = await admin
     .from('profiles')
     .select('role')
@@ -51,6 +51,13 @@ export async function createPerson(
 
   if (!input.name || input.name.trim().length === 0) {
     return { success: false, error: 'El nombre es requerido' }
+  }
+
+  // Validate: at least one of employee_id or card_number must be present
+  const hasEmployeeId = Boolean(input.employee_id?.trim())
+  const hasCardNumber = Boolean(input.card_number?.trim())
+  if (!hasEmployeeId && !hasCardNumber) {
+    return { success: false, error: 'La persona debe tener un número de empleado o una tarjeta' }
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -95,7 +102,7 @@ export async function updatePerson(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const admin: any = createAdminClient()
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   const { data: existing, error: fetchError } = await admin
     .from('persons')
     .select('*')
@@ -107,9 +114,20 @@ export async function updatePerson(
   }
 
   const existingPerson = existing as PersonRecord
-  const nameChanged = input.name && input.name !== existingPerson.name
+
+  // Validate: at least one of employee_id or card_number must be present after update
+  const newEmployeeId = input.employee_id !== undefined ? input.employee_id : existingPerson.employee_id
+  const newCardNumber = input.card_number !== undefined ? input.card_number : existingPerson.card_number
+  const willHaveEmployeeId = Boolean(newEmployeeId?.trim())
+  const willHaveCardNumber = Boolean(newCardNumber?.trim())
+  if (!willHaveEmployeeId && !willHaveCardNumber) {
+    return { success: false, error: 'La persona debe tener un número de empleado o una tarjeta' }
+  }
+
+  const nameChanged = input.name !== undefined && input.name !== existingPerson.name
   const employeeChanged = input.employee_id !== undefined && input.employee_id !== existingPerson.employee_id
-  const needsSync = nameChanged || employeeChanged
+  const cardChanged = input.card_number !== undefined && input.card_number !== existingPerson.card_number
+  const needsSync = nameChanged || employeeChanged || cardChanged
 
   const updateData: Record<string, unknown> = {}
   if (input.name !== undefined) updateData.name = input.name.trim()
@@ -119,7 +137,7 @@ export async function updatePerson(
   if (input.face_photo_url !== undefined) updateData.face_photo_url = input.face_photo_url
   if (needsSync) updateData.status = 'pending_sync'
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   const { data, error } = await admin
     .from('persons')
     .update(updateData)
@@ -145,7 +163,7 @@ export async function deletePerson(id: string): Promise<ActionResult> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const admin: any = createAdminClient()
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   const { data: existing, error: fetchError } = await admin
     .from('persons')
     .select('status')
@@ -291,7 +309,7 @@ export async function batchCreatePersons(
   for (let i = 0; i < validRows.length; i += batchSize) {
     const chunk = validRows.slice(i, i + batchSize)
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     const { error } = await admin.from('persons').insert(
       chunk.map((row) => ({
         ...row,
@@ -353,12 +371,33 @@ export async function resetPersonSync(personId: string): Promise<ActionResult<Pe
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const admin: any = createAdminClient()
 
+  // Fetch current person to check debounce
+   
+  const { data: existing, error: fetchError } = await admin
+    .from('persons')
+    .select('last_retry_at')
+    .eq('id', personId)
+    .single() as any
+
+  if (fetchError || !existing) {
+    return { success: false, error: 'Persona no encontrada' }
+  }
+
+  // Check debounce: 30 seconds cooldown
+  if (existing.last_retry_at) {
+    const diff = Date.now() - new Date(existing.last_retry_at).getTime()
+    if (diff < 30000) {
+      return { success: false, error: 'Espera 30s antes de reintentar' }
+    }
+  }
+
   const { data, error } = await admin
     .from('persons')
     .update({
       status: 'pending_sync',
       sync_attempts: 0,
       sync_error: null,
+      last_retry_at: new Date().toISOString(),
     })
     .eq('id', personId)
     .select()
@@ -369,4 +408,45 @@ export async function resetPersonSync(personId: string): Promise<ActionResult<Pe
   }
 
   return { success: true, data: data as PersonRecord }
+}
+
+export async function discardPerson(personId: string): Promise<ActionResult> {
+  const roleCheck = await checkRole(['admin'])
+  if (!roleCheck.success) return roleCheck
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const admin: any = createAdminClient()
+
+   
+  const { data: existing, error: fetchError } = await admin
+    .from('persons')
+    .select('status, device_employee_no')
+    .eq('id', personId)
+    .single() as any
+
+  if (fetchError || !existing) {
+    return { success: false, error: 'Persona no encontrada' }
+  }
+
+  const existingPerson = existing as { status: string; device_employee_no: number | null }
+
+  if (existingPerson.status === 'pending_sync') {
+    return { success: false, error: 'La persona está sincronizando. Esperá o cancelá primero.' }
+  }
+
+  // If person has device_employee_no, the agent cleanup loop will handle device deletion
+  // when we set status to inactive. We just update the DB here.
+  // The sync loop's cleanupDeadLetterPersons handles actual device deletion.
+
+   
+  const { error } = await admin
+    .from('persons')
+    .update({ status: 'inactive' })
+    .eq('id', personId)
+
+  if (error) {
+    return { success: false, error: error.message }
+  }
+
+  return { success: true }
 }

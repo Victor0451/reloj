@@ -150,12 +150,13 @@ export default function EventsTable({
     }
 
     // Handle realtime INSERT events
-    function handleRealtimeInsert(payload: {
+    async function handleRealtimeInsert(payload: {
       eventType?: string
       new?: {
         id?: string
         event_time?: string
-        employee_id?: string
+        employee_id?: string | null
+        person_id?: string | null
         person_name?: string | null
         event_type?: string
         verify_mode?: string | null
@@ -166,15 +167,37 @@ export default function EventsTable({
       const newEvent = payload.new
       if (!newEvent?.id || !newEvent?.event_time) return
 
+      // Resolve person_name from person_id or employee_id
+      let resolvedName: string | null = newEvent.person_name ?? null
+      if (!resolvedName && (newEvent.person_id || newEvent.employee_id)) {
+        try {
+          const supabase = supabaseRef.current!
+          let personQuery = supabase.from('persons').select('name')
+          
+          if (newEvent.person_id) {
+            personQuery = personQuery.eq('id', newEvent.person_id).limit(1)
+          } else if (newEvent.employee_id) {
+            personQuery = personQuery.eq('employee_id', newEvent.employee_id).limit(1)
+          }
+          
+          const { data: personData } = await personQuery.single()
+          if (personData && 'name' in personData) {
+            resolvedName = (personData as { name: string }).name
+          }
+        } catch (err) {
+          console.warn('Failed to resolve person name from realtime event:', err)
+        }
+      }
+
       const event: EventWithPerson = {
         id: newEvent.id,
         event_time: newEvent.event_time,
         employee_id: newEvent.employee_id ?? null,
-        person_name: newEvent.person_name ?? null,
+        person_name: resolvedName,
         event_type: newEvent.event_type ?? '0',
         verify_mode: newEvent.verify_mode ?? null,
         device_serial: null,
-        person_id: null,
+        person_id: newEvent.person_id ?? null,
         major: null,
         minor: null,
         synced_at: new Date().toISOString(),

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useDebouncedCallback } from 'use-debounce'
 import { listPersons } from '@/actions/persons'
@@ -36,6 +36,10 @@ import {
   Users,
   ChevronLeft,
   ChevronRight,
+  CheckCircle,
+  Clock,
+  AlertCircle,
+  XCircle,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -46,18 +50,32 @@ interface PersonsTableProps {
   onReactivate: (id: string) => void
   onNew: () => void
   onImport: () => void
+  onRetry?: (id: string) => void
+  onDiscard?: (id: string) => void
 }
 
 const statusLabels: Record<string, string> = {
-  active: 'Activo',
+  active: 'Sincronizado',
   inactive: 'Inactivo',
   pending_sync: 'Pendiente',
+  sync_failed: 'Error',
+  sync_dead_letter: 'Fallido',
 }
 
-const statusVariant: Record<string, 'success' | 'destructive' | 'warning'> = {
+const statusVariant: Record<string, 'success' | 'destructive' | 'warning' | 'secondary'> = {
   active: 'success',
   inactive: 'destructive',
   pending_sync: 'warning',
+  sync_failed: 'destructive',
+  sync_dead_letter: 'secondary',
+}
+
+const statusIcon: Record<string, React.ReactNode> = {
+  active: <CheckCircle className="h-3 w-3" />,
+  pending_sync: <Clock className="h-3 w-3" />,
+  sync_failed: <AlertCircle className="h-3 w-3" />,
+  sync_dead_letter: <XCircle className="h-3 w-3" />,
+  inactive: null,
 }
 
 export default function PersonsTableServer({
@@ -67,6 +85,8 @@ export default function PersonsTableServer({
   onReactivate,
   onNew,
   onImport,
+  onRetry,
+  onDiscard,
 }: PersonsTableProps) {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -75,6 +95,11 @@ export default function PersonsTableServer({
   const [searchInput, setSearchInput] = useState(searchParams.get('search') ?? '')
   const [statusFilter, setStatusFilter] = useState(searchParams.get('status') ?? 'all')
   const [loading, setLoading] = useState(false)
+
+  // Sync local data when parent polling updates initialData prop
+  useEffect(() => {
+    setData(initialData)
+  }, [initialData])
 
   const fetchData = useCallback(
     async (page: number, search: string, status: string) => {
@@ -149,6 +174,8 @@ export default function PersonsTableServer({
             <option value="all">Todos los estados</option>
             <option value="active">Activos</option>
             <option value="pending_sync">Pendientes</option>
+            <option value="sync_failed">Error</option>
+            <option value="sync_dead_letter">Fallidos</option>
             <option value="inactive">Inactivos</option>
           </select>
 
@@ -213,12 +240,34 @@ export default function PersonsTableServer({
                       {person.department || '—'}
                     </TableCell>
                     <TableCell>
-                      <Badge 
-                        variant={statusVariant[person.status] ?? 'secondary'}
-                        className="rounded-full px-2 py-0.5 font-bold uppercase text-[9px]"
-                      >
-                        {statusLabels[person.status] ?? person.status}
-                      </Badge>
+                      <div className="flex items-center gap-2">
+                        <div
+                          title={
+                            person.sync_error
+                              ? `Intento ${person.sync_attempts}/3: ${person.sync_error}`
+                              : person.sync_attempts > 0
+                                ? `Intento ${person.sync_attempts}/3`
+                                : undefined
+                          }
+                          className={cn(
+                            "cursor-help",
+                            person.sync_error && "border-l-2 border-l-destructive pl-2"
+                          )}
+                        >
+                          <Badge
+                            variant={statusVariant[person.status] ?? 'secondary'}
+                            className="rounded-full px-2 py-0.5 font-bold uppercase text-[9px] inline-flex items-center gap-1"
+                          >
+                            {statusIcon[person.status]}
+                            {statusLabels[person.status] ?? person.status}
+                          </Badge>
+                          {person.sync_attempts > 0 && (
+                            <span className="text-xs text-muted-foreground ml-1">
+                              ({person.sync_attempts}/3)
+                            </span>
+                          )}
+                        </div>
+                      </div>
                     </TableCell>
                     <TableCell>
                       <DropdownMenu>
@@ -237,7 +286,6 @@ export default function PersonsTableServer({
                           <DropdownMenuItem 
                             onClick={() => onEdit(person)} 
                             className="rounded-lg focus:bg-primary/10 focus:text-primary cursor-pointer gap-2 px-2 py-1.5"
-                            render={<button className="w-full flex items-center" />}
                           >
                             <Pencil className="h-4 w-4" />
                             <span className="font-medium text-sm">Editar</span>
@@ -246,7 +294,6 @@ export default function PersonsTableServer({
                             <DropdownMenuItem
                               onClick={() => handleDeactivate(person.id)}
                               className="rounded-lg text-destructive focus:text-destructive focus:bg-destructive/10 cursor-pointer gap-2 px-2 py-1.5"
-                              render={<button className="w-full flex items-center" />}
                             >
                               <Trash2 className="h-4 w-4" />
                               <span className="font-medium text-sm">Desactivar</span>
@@ -255,11 +302,32 @@ export default function PersonsTableServer({
                             <DropdownMenuItem 
                               onClick={() => handleReactivate(person.id)} 
                               className="rounded-lg focus:bg-primary/10 focus:text-primary cursor-pointer gap-2 px-2 py-1.5"
-                              render={<button className="w-full flex items-center" />}
                             >
                               <RotateCcw className="h-4 w-4" />
                               <span className="font-medium text-sm">Reactivar</span>
                             </DropdownMenuItem>
+                          )}
+                          {person.status === 'sync_dead_letter' && (
+                            <>
+                              {onRetry && (
+<DropdownMenuItem
+                                  onClick={() => onRetry && onRetry(person.id)}
+                                  className="rounded-lg focus:bg-primary/10 focus:text-primary cursor-pointer gap-2 px-2 py-1.5"
+                                >
+                                  <RotateCcw className="h-4 w-4" />
+                                  <span className="font-medium text-sm">Reintentar</span>
+                                </DropdownMenuItem>
+                              )}
+                              {onDiscard && (
+<DropdownMenuItem
+                                  onClick={() => onDiscard && onDiscard(person.id)}
+                                  className="rounded-lg text-destructive focus:text-destructive focus:bg-destructive/10 cursor-pointer gap-2 px-2 py-1.5"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                  <span className="font-medium text-sm">Descartar</span>
+                                </DropdownMenuItem>
+                              )}
+                            </>
                           )}
                         </DropdownMenuContent>
                       </DropdownMenu>
