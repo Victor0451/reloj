@@ -75,6 +75,33 @@ Then the status column shows gray badge "Inactivo"
 And no sync-related icons are shown
 ```
 
+### Scenario: Device circuit state shown in status banner
+
+```
+Given a person linked to device with circuit_state="open" or "half_open"
+When the user opens the person in edit dialog
+Then the status banner SHOULD display:
+  "⚡ Device unreachable (circuit [open/half_open])"
+And if circuit_state="open", show estimated recovery time
+And if circuit_state="half_open", show "Testing connection..."
+```
+
+### Scenario: Circuit state color coding for devices
+
+```
+Given a device with circuit_state="closed"
+When the device status section is rendered
+Then show green badge "Connected"
+
+Given a device with circuit_state="open"
+When the device status section is rendered
+Then show red badge "Disconnected (circuit open)"
+
+Given a device with circuit_state="half_open"
+When the device status section is rendered
+Then show amber badge "Testing connection"
+```
+
 ## Acceptance Criteria
 
 - [ ] `active` → green badge "Sincronizado" with checkmark icon
@@ -85,3 +112,6 @@ And no sync-related icons are shown
 - [ ] Hover/tooltip on failed/dead-letter shows `sync_error` message
 - [ ] Person dialog shows sync status banner when editing failed/dead-letter persons
 - [ ] Badges are consistent across table and dialog
+- [ ] `circuit_state='closed'` → green badge "Connected"
+- [ ] `circuit_state='open'` → red badge "Disconnected (circuit open)"
+- [ ] `circuit_state='half_open'` → amber badge "Testing connection"

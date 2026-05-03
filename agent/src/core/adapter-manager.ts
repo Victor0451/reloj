@@ -11,6 +11,17 @@ import {
 } from "./interfaces";
 import * as log from "../utils/logger";
 
+// ─── Circuit Breaker Types ────────────────────────────────────────────────────
+
+export type CircuitState = "closed" | "open" | "half_open";
+
+export interface CircuitBreakerState {
+  state: CircuitState;
+  failureCount: number;
+  lastFailureTime: Date;
+  nextProbeTime: Date;
+}
+
 export interface DeviceConfig {
   /** ID del dispositivo en la DB */
   id: string;
@@ -34,6 +45,7 @@ export interface DeviceConfig {
 
 export class AdapterManager {
   private adapters: Map<string, IDeviceAdapter> = new Map();
+  private circuitBreakerState: Map<string, CircuitBreakerState> = new Map();
 
   /**
    * Obtiene o crea un adaptador para un dispositivo
@@ -174,6 +186,34 @@ export class AdapterManager {
 
     await Promise.all(checks);
     return results;
+  }
+
+  // ─── Circuit Breaker State ─────────────────────────────────────────────────
+
+  /**
+   * Obtiene el estado del circuit breaker para un dispositivo
+   */
+  getCircuitState(deviceId: string): CircuitBreakerState | undefined {
+    return this.circuitBreakerState.get(deviceId);
+  }
+
+  /**
+   * Establece el estado del circuit breaker para un dispositivo
+   */
+  setCircuitState(deviceId: string, state: CircuitBreakerState): void {
+    this.circuitBreakerState.set(deviceId, state);
+    log.debug("adapterManager", `Circuit state updated for ${deviceId}`, {
+      state: state.state,
+      failureCount: state.failureCount,
+    });
+  }
+
+  /**
+   * Resetea el estado del circuit breaker para un dispositivo
+   */
+  resetCircuitState(deviceId: string): void {
+    this.circuitBreakerState.delete(deviceId);
+    log.debug("adapterManager", `Circuit state reset for ${deviceId}`);
   }
 }
 

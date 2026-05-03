@@ -114,8 +114,15 @@ export function startHeartbeatLoop(
   };
 }
 
+// ─── Circuit Breaker Constants ───────────────────────────────────────────────
+
+const PROBE_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+const RESET_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
+const MAX_CONSECUTIVE_FAILURES = 3; // failures before opening circuit
+
 /**
  * Heartbeat para un dispositivo específico (single device mode)
+ * Implements circuit breaker pattern to prevent continuous polling of failing devices
  */
 export function startSingleDeviceHeartbeat(
   adapterManager: AdapterManager,
@@ -125,8 +132,7 @@ export function startSingleDeviceHeartbeat(
   options: HeartbeatOptions = {}
 ): () => void {
   const {
-    intervalMs = 15000, // Reducido a 15s para detectar offline más rápido
-    maxConsecutiveFailures = 2,
+    intervalMs = 15000,
     deviceIp,
     deviceBrand = "hikvision",
     deviceUsername,
@@ -134,13 +140,81 @@ export function startSingleDeviceHeartbeat(
     allowSelfSignedCert = false,
   } = options;
 
-  let consecutiveFailures = 0;
-
   async function heartbeat() {
     const timestamp = new Date().toISOString();
+    const now = new Date();
+
+    // Get current circuit state
+    let circuitState = adapterManager.getCircuitState(deviceId);
+
+    // Initialize circuit state if not exists — read from DB for restart recovery
+    if (!circuitState) {
+      // Query DB for persisted circuit state
+      const { data: deviceData } = await (supabase as any)
+        .from("devices")
+        .select("circuit_state")
+        .eq("id", deviceId)
+        .single();
+
+      const persistedState = deviceData?.circuit_state || "closed";
+      const nowTime = new Date();
+
+      if (persistedState === "open") {
+        // Device was OPEN — probe immediately on restart
+        circuitState = {
+          state: "half_open",
+          failureCount: 0,
+          lastFailureTime: nowTime,
+          nextProbeTime: nowTime, // probe immediately
+        };
+        log.info("heartbeat", `Circuit restored from DB - starting as HALF_OPEN: ${deviceSerial}`, { deviceId });
+      } else if (persistedState === "half_open") {
+        // Device was HALF_OPEN — continue probing
+        circuitState = {
+          state: "half_open",
+          failureCount: 0,
+          lastFailureTime: nowTime,
+          nextProbeTime: nowTime, // probe immediately
+        };
+        log.info("heartbeat", `Circuit restored from DB - HALF_OPEN: ${deviceSerial}`, { deviceId });
+      } else {
+        // Default to CLOSED
+        circuitState = {
+          state: "closed",
+          failureCount: 0,
+          lastFailureTime: nowTime,
+          nextProbeTime: nowTime,
+        };
+      }
+      adapterManager.setCircuitState(deviceId, circuitState);
+    }
+
+    // Auto-reset: if OPEN/HALF_OPEN for more than 30 minutes, force close
+    if (
+      (circuitState.state === "open" || circuitState.state === "half_open") &&
+      now.getTime() - circuitState.lastFailureTime.getTime() > RESET_TIMEOUT_MS
+    ) {
+      circuitState = {
+        state: "closed",
+        failureCount: 0,
+        lastFailureTime: now,
+        nextProbeTime: now,
+      };
+      adapterManager.setCircuitState(deviceId, circuitState);
+      log.warn("heartbeat", `Circuit auto-reset after timeout: ${deviceSerial}`, { deviceId });
+    }
+
+    // Skip heartbeat if circuit is OPEN and probe time hasn't arrived
+    if (circuitState.state === "open" && now.getTime() < circuitState.nextProbeTime.getTime()) {
+      log.debug("heartbeat", `Circuit OPEN - skipping heartbeat until probe time: ${deviceSerial}`, {
+        deviceId,
+        nextProbeIn: circuitState.nextProbeTime.getTime() - now.getTime(),
+      });
+      return;
+    }
 
     try {
-      // Crear adapter fresco cada vez (no usar cache si está offline)
+      // Create adapter fresh each time
       const adapter = await adapterManager.getAdapter({
         id: deviceId,
         serialNumber: deviceSerial,
@@ -151,14 +225,36 @@ export function startSingleDeviceHeartbeat(
         allowSelfSignedCert,
       });
 
-      // Hacer healthCheck directo
+      // Send heartbeat probe
       const health = await adapter.healthCheck();
 
       if (!health.reachable) {
         throw new Error(health.error || "Device unreachable");
       }
 
-      // Update with timestamp to trigger Realtime
+      // Heartbeat succeeded - update circuit state based on current state
+      if (circuitState.state === "half_open") {
+        // Probe succeeded in HALF_OPEN → transition to CLOSED
+        circuitState = {
+          state: "closed",
+          failureCount: 0,
+          lastFailureTime: now,
+          nextProbeTime: now,
+        };
+        log.info("heartbeat", `Device recovered: ${deviceSerial}`, { deviceId });
+      } else if (circuitState.state === "closed") {
+        // Normal operation - just reset failure count
+        circuitState = {
+          state: "closed",
+          failureCount: 0,
+          lastFailureTime: now,
+          nextProbeTime: now,
+        };
+      }
+
+      adapterManager.setCircuitState(deviceId, circuitState);
+
+      // Update DB with online status and circuit_state
       const { error } = await (supabase as any)
         .from("devices")
         .update({
@@ -166,6 +262,7 @@ export function startSingleDeviceHeartbeat(
           status: "online",
           sync_status: "synced",
           sync_error: null,
+          circuit_state: circuitState.state,
           updated_at: timestamp,
         })
         .eq("id", deviceId);
@@ -174,40 +271,71 @@ export function startSingleDeviceHeartbeat(
         throw new Error(`DB update failed: ${error.message}`);
       }
 
-      consecutiveFailures = 0;
-      log.debug("heartbeat", `Device online: ${deviceSerial}`, { 
-        deviceId, 
-        brand: deviceBrand,
-        latency: health.latency 
-      });
-    } catch (err) {
-      consecutiveFailures++;
-
-      log.warn("heartbeat", `Heartbeat failed (${consecutiveFailures}/${maxConsecutiveFailures})`, {
+      log.debug("heartbeat", `Device online: ${deviceSerial}`, {
         deviceId,
         brand: deviceBrand,
-        error: (err as Error).message,
+        latency: health.latency,
+        circuitState: circuitState.state,
       });
+    } catch (err) {
+      const errorMessage = (err as Error).message;
 
-      // Limpiar adapter cache para forzar reconnect
+      // Increment failure count
+      circuitState.failureCount++;
+      circuitState.lastFailureTime = now;
+
+      // Clean adapter cache to force reconnect
       await adapterManager.removeAdapter(deviceId).catch(() => {});
 
-      if (consecutiveFailures >= maxConsecutiveFailures) {
-        await (supabase as any)
-          .from("devices")
-          .update({
-            status: "offline",
-            sync_status: "disconnected",
-            sync_error: (err as Error).message,
-            updated_at: timestamp,
-          })
-          .eq("id", deviceId);
+      if (circuitState.failureCount >= MAX_CONSECUTIVE_FAILURES && circuitState.state === "closed") {
+        // Transition to OPEN
+        circuitState.state = "open";
+        circuitState.nextProbeTime = new Date(now.getTime() + PROBE_INTERVAL_MS);
 
-        log.warn("heartbeat", `Device marked OFFLINE: ${deviceSerial}`, { 
+        log.warn("heartbeat", `Circuit OPEN: ${deviceSerial}`, {
           deviceId,
           brand: deviceBrand,
+          nextProbeIn: PROBE_INTERVAL_MS,
+        });
+      } else if (circuitState.state === "half_open") {
+        // Probe failed in HALF_OPEN → back to OPEN
+        circuitState.state = "open";
+        circuitState.nextProbeTime = new Date(now.getTime() + PROBE_INTERVAL_MS);
+
+        log.warn("heartbeat", `Circuit re-OPENED after probe failure: ${deviceSerial}`, {
+          deviceId,
+          nextProbeIn: PROBE_INTERVAL_MS,
+        });
+      } else if (circuitState.state === "open") {
+        // Still in OPEN, update next probe time
+        circuitState.nextProbeTime = new Date(now.getTime() + PROBE_INTERVAL_MS);
+
+        log.warn("heartbeat", `Circuit still OPEN - will retry: ${deviceSerial}`, {
+          deviceId,
+          nextProbeIn: PROBE_INTERVAL_MS,
         });
       }
+
+      adapterManager.setCircuitState(deviceId, circuitState);
+
+      // Update DB with error status
+      await (supabase as any)
+        .from("devices")
+        .update({
+          status: "offline",
+          sync_status: "disconnected",
+          sync_error: errorMessage,
+          circuit_state: circuitState.state,
+          updated_at: timestamp,
+        })
+        .eq("id", deviceId);
+
+      log.warn("heartbeat", `Heartbeat failed (${circuitState.failureCount}/${MAX_CONSECUTIVE_FAILURES}): ${deviceSerial}`, {
+        deviceId,
+        brand: deviceBrand,
+        error: errorMessage,
+        circuitState: circuitState.state,
+      });
     }
   }
 
@@ -216,11 +344,13 @@ export function startSingleDeviceHeartbeat(
 
   const interval = setInterval(heartbeat, intervalMs);
 
-  log.info("heartbeat", `Heartbeat loop started`, { 
-    deviceId, 
+  log.info("heartbeat", `Heartbeat loop started with circuit breaker`, {
+    deviceId,
     brand: deviceBrand,
     intervalMs,
-    maxFailures: maxConsecutiveFailures,
+    maxFailures: MAX_CONSECUTIVE_FAILURES,
+    probeIntervalMs: PROBE_INTERVAL_MS,
+    resetTimeoutMs: RESET_TIMEOUT_MS,
   });
 
   return () => {

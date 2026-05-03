@@ -293,6 +293,16 @@ export function startSingleDeviceEventSync(
   async function syncEvents() {
     if (!isRunning) return;
 
+    // Check circuit state - skip event sync if circuit is OPEN or HALF_OPEN
+    const circuitState = adapterManager.getCircuitState(deviceId);
+    if (circuitState && (circuitState.state === "open" || circuitState.state === "half_open")) {
+      log.debug("eventSync", `Circuit ${circuitState.state.toUpperCase()} - skipping event sync: ${deviceSerial}`, {
+        deviceId,
+        nextProbeIn: circuitState.nextProbeTime.getTime() - Date.now(),
+      });
+      return;
+    }
+
     // Longer delay to respect device limitations
     await new Promise(resolve => setTimeout(resolve, 5000));
 
