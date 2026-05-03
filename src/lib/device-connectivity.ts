@@ -108,29 +108,6 @@ export async function checkDeviceConnectivity(
   return toHealthCheckResult(await performDeviceConnectionCheck(input))
 }
 
-async function getStoredDeviceConnectionInput(deviceId: string): Promise<DeviceConnectionInput | null> {
-  const supabase = await createClient()
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data, error } = await (supabase as any)
-    .from('devices')
-    .select('ip_address, device_username, device_password_encrypted, brand, allow_self_signed_cert')
-    .eq('id', deviceId)
-    .single()
-
-  if (error || !data?.ip_address || !data?.device_username || !data?.device_password_encrypted) {
-    return null
-  }
-
-  return {
-    ip_address: data.ip_address,
-    username: data.device_username,
-    password: data.device_password_encrypted,
-    brand: data.brand || 'hikvision',
-    allow_self_signed_cert: data.allow_self_signed_cert ?? false,
-  }
-}
-
 /**
  * Actualiza el estado de conectividad de un dispositivo en la base de datos
  */
@@ -172,18 +149,39 @@ export async function updateDeviceStatus(
   }
 }
 
+/**
+ * Health check for stored devices — uses API route to avoid exposing HikvisionAdapter to client.
+ */
 export async function checkStoredDeviceConnectivity(deviceId: string): Promise<HealthCheckResult> {
-  const connectionInput = await getStoredDeviceConnectionInput(deviceId)
+  try {
+    const response = await fetch(
+      `${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'}/api/devices/${deviceId}/health`,
+      { cache: 'no-store' }
+    )
 
-  if (!connectionInput) {
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ error: 'Request failed' }))
+      return {
+        status: 'error',
+        error: errorData.error || `HTTP ${response.status}`,
+        timestamp: new Date(),
+      }
+    }
+
+    const data = await response.json()
+    return {
+      status: data.status === 'online' ? 'online' : data.status === 'offline' ? 'offline' : 'error',
+      latency: data.latency,
+      error: data.error,
+      timestamp: new Date(data.timestamp),
+    }
+  } catch (err) {
     return {
       status: 'error',
-      error: 'El dispositivo no tiene configuración de conexión completa',
+      error: err instanceof Error ? err.message : 'Health check failed',
       timestamp: new Date(),
     }
   }
-
-  return checkDeviceConnectivity(connectionInput)
 }
 
 /**
