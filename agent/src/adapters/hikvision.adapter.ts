@@ -457,6 +457,13 @@ export class HikvisionAdapter implements IDeviceAdapter {
         acsEventCond.searchResultPosition = position;
         const jsonBody = JSON.stringify({ AcsEventCond: acsEventCond });
 
+        log.info("hikvision", "Making JSON events request", {
+          url: `${this.baseUrl}/ISAPI/AccessControl/AcsEvent?format=json`,
+          body: jsonBody,
+          startTime: hasTimeFilter ? formatHikvisionTime(startTime) : "none",
+          endTime: hasTimeFilter ? formatHikvisionTime(endTime) : "none",
+        });
+
         const jsonResponse = await digestRequest(
           `${this.baseUrl}/ISAPI/AccessControl/AcsEvent?format=json`,
           this.config.username,
@@ -467,9 +474,22 @@ export class HikvisionAdapter implements IDeviceAdapter {
           this.config.rejectUnauthorized
         );
 
+        log.info("hikvision", "JSON events response", {
+          status: jsonResponse.status,
+          bodyLength: jsonResponse.body.length,
+          bodyPreview: jsonResponse.body.substring(0, 300),
+        });
+
         if (jsonResponse.status === 200) {
           const data = JSON.parse(jsonResponse.body);
-          allEvents.push(...this.parseJsonEvents(data));
+          const parsedEvents = this.parseJsonEvents(data);
+          allEvents.push(...parsedEvents);
+
+          log.info("hikvision", `JSON returned ${parsedEvents.length} events, total collected: ${allEvents.length}`, {
+            responseStatus: data?.AcsEvent?.responseStatusStrg,
+            totalMatches: data?.AcsEvent?.totalMatches,
+            numOfMatches: data?.AcsEvent?.numOfMatches,
+          });
 
           // Check if there are more results
           if (data?.AcsEvent?.responseStatusStrg === "MORE" && position < maxPages * 200) {
@@ -479,7 +499,10 @@ export class HikvisionAdapter implements IDeviceAdapter {
           break;
         }
 
-        // If JSON fails with non-200, break to try XML
+        log.warn("hikvision", "JSON endpoint failed, trying XML fallback", {
+          status: jsonResponse.status,
+          body: jsonResponse.body.substring(0, 300),
+        });
         break;
       }
 
@@ -489,15 +512,19 @@ export class HikvisionAdapter implements IDeviceAdapter {
       }
 
       // JSON returned no events, try XML format
+      log.info("hikvision", "Attempting XML fallback", { allEventsFromJson: allEvents.length });
+
       const xmlBody = `<?xml version="1.0" encoding="utf-8"?>
 <searchEvents>
   <searchID>1</searchID>
   <searchResultPosition>0</searchResultPosition>
   <maxResults>${maxResults}</maxResults>
-  <timeSearchType>point</timeSearchType>
-  <startTime>${startTime.toISOString()}</startTime>
-  <endTime>${endTime.toISOString()}</endTime>
 </searchEvents>`;
+
+      log.info("hikvision", "Making XML events request", {
+        url: `${this.baseUrl}/ISAPI/AccessControl/AcsEvent`,
+        body: xmlBody,
+      });
 
       const xmlResponse = await digestRequest(
         `${this.baseUrl}/ISAPI/AccessControl/AcsEvent`,
@@ -509,13 +536,19 @@ export class HikvisionAdapter implements IDeviceAdapter {
         this.config.rejectUnauthorized
       );
 
+      log.info("hikvision", "XML events response", {
+        status: xmlResponse.status,
+        bodyPreview: xmlResponse.body.substring(0, 300),
+      });
+
       if (xmlResponse.status === 404 || xmlResponse.status === 500) {
         log.warn("hikvision", "Events endpoint not available", { status: xmlResponse.status });
         return [];
       }
 
       if (xmlResponse.status !== 200) {
-        throw new Error(`Failed to get events: ${xmlResponse.status}`);
+        log.warn("hikvision", "XML fallback also failed", { status: xmlResponse.status });
+        return [];
       }
 
       // Parse events from XML
