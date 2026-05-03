@@ -7,6 +7,7 @@ import { getAdapterManager } from "./core/adapter-manager";
 import { setupErrorHandlers } from "./utils/errorHandler";
 import { registerCleanup } from "./utils/shutdown";
 import * as log from "./utils/logger";
+import { decryptDevicePassword } from "./crypto/device-credentials";
 
 // ─── Sync Loops (Refactorizados con Adaptadores) ────────────────────────────
 
@@ -122,7 +123,7 @@ async function main() {
     const deviceSerial = device.serial_number;
     const deviceIp = device.ip_address!;
     const deviceUsername = device.device_username || "admin";
-    const devicePassword = device.device_password_encrypted || "";
+    const devicePassword = decryptDevicePassword(device.device_password_encrypted || "");
     const deviceBrand = device.brand || "hikvision";
     const allowSelfSigned = device.allow_self_signed_cert ?? false;
 

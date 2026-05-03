@@ -10,6 +10,7 @@ import {
   UpdateDeviceConnectionInput,
 } from '@/types/device.types'
 import { performDeviceConnectionCheck } from '@/lib/device-connectivity'
+import { encryptDevicePassword, decryptDevicePassword } from '@/lib/crypto/device-credentials'
 
 function normalizeText(value: string | undefined | null): string {
   return value?.trim() || ''
@@ -116,7 +117,7 @@ export async function createDevice(
       brand: normalizedInput.brand,
       status: connection.status,
       device_username: normalizedInput.username,
-      device_password_encrypted: normalizedInput.password,
+      device_password_encrypted: encryptDevicePassword(normalizedInput.password),
       sync_status: connection.reachable ? 'synced' : 'disconnected',
       sync_error: connection.error ?? null,
       last_seen_at: connection.reachable ? nowIso : null,
@@ -151,10 +152,15 @@ export async function updateDeviceConnection(
     return { success: false, error: 'No se encontró el dispositivo.' }
   }
 
+  // Determine the password: new plaintext password OR decrypt stored encrypted value
+  const storedPassword = current.device_password_encrypted || ''
+  const providedPassword = normalizeText(input.password)
+  const effectivePassword = providedPassword || decryptDevicePassword(storedPassword)
+
   const nextConnection = {
     ip_address: normalizeText(input.ip_address) || current.ip_address || '',
     username: normalizeText(input.username) || current.device_username || '',
-    password: normalizeText(input.password) || current.device_password_encrypted || '',
+    password: effectivePassword,
     brand: input.brand || current.brand || 'hikvision',
   }
 
@@ -166,6 +172,11 @@ export async function updateDeviceConnection(
   const supabase = await createClient()
   const nowIso = new Date().toISOString()
 
+  // If new password provided, encrypt it. Otherwise keep existing (which may be encrypted or legacy plaintext)
+  const passwordToStore = providedPassword
+    ? encryptDevicePassword(providedPassword)
+    : storedPassword
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data, error } = await (supabase as any)
     .from('devices')
@@ -176,7 +187,7 @@ export async function updateDeviceConnection(
       ip_address: nextConnection.ip_address,
       brand: nextConnection.brand,
       device_username: nextConnection.username,
-      device_password_encrypted: nextConnection.password,
+      device_password_encrypted: passwordToStore,
       status: connection.status,
       sync_status: connection.reachable ? 'synced' : 'disconnected',
       sync_error: connection.error ?? null,

@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { HikvisionAdapter } from '../../agent/src/adapters/hikvision.adapter'
+import { decryptDevicePassword } from '@/lib/crypto/device-credentials'
 import {
   DeviceConnectionCheckResult,
   DeviceConnectionInput,
@@ -225,7 +226,7 @@ export async function checkAllDevices(): Promise<{
         result = await checkDeviceConnectivity({
           ip_address: device.ip_address,
           username: device.device_username,
-          password: device.device_password_encrypted,
+          password: decryptDevicePassword(device.device_password_encrypted),
           brand: device.brand || 'hikvision',
           allow_self_signed_cert: device.allow_self_signed_cert ?? false,
         })

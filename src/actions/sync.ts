@@ -8,6 +8,7 @@ import { HikvisionAdapter } from '../../agent/src/adapters/hikvision.adapter'
 import { createSyncLog, updateDeviceSyncStatus } from '@/actions/sync-logs'
 import { isapiRequest } from '../../agent/src/isapi/client'
 import type { Config } from '../../agent/src/config'
+import { decryptDevicePassword } from '@/lib/crypto/device-credentials'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -64,7 +65,7 @@ function createAdapter(device: SyncDevice) {
     ip: device.ip_address,
     port: 443,
     username: device.device_username || 'admin',
-    password: device.device_password_encrypted || '',
+    password: decryptDevicePassword(device.device_password_encrypted || ''),
   })
 }
 
@@ -74,7 +75,7 @@ async function getDeviceUserCount(device: SyncDevice): Promise<number | null> {
   const config: Config = {
     deviceIp: device.ip_address,
     deviceUsername: device.device_username || 'admin',
-    devicePassword: device.device_password_encrypted || '',
+    devicePassword: decryptDevicePassword(device.device_password_encrypted || ''),
     devicePort: 443,
     supabaseUrl: '',
     supabaseServiceRoleKey: '',

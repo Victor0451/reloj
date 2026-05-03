@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { HikvisionAdapter } from '../../../../../../agent/src/adapters/hikvision.adapter'
+import { decryptDevicePassword } from '@/lib/crypto/device-credentials'
 
 export async function GET(
   request: NextRequest,
@@ -36,11 +37,12 @@ export async function GET(
 
   // Create adapter and perform health check
   try {
+    const plaintextPassword = decryptDevicePassword(device.device_password_encrypted)
     const adapter = new HikvisionAdapter({
       ip: device.ip_address,
       port: 443,
       username: device.device_username,
-      password: device.device_password_encrypted,
+      password: plaintextPassword,
       rejectUnauthorized: device.allow_self_signed_cert ? false : true,
     })
 

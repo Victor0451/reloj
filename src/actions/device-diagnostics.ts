@@ -5,6 +5,7 @@ import { HikvisionAdapter } from '../../agent/src/adapters/hikvision.adapter'
 import { randomUUID } from 'crypto'
 import { isapiRequest } from '../../agent/src/isapi/client'
 import type { Config } from '../../agent/src/config'
+import { decryptDevicePassword } from '@/lib/crypto/device-credentials'
 
 export type DevicePersonEntry = {
   id: string
@@ -172,7 +173,7 @@ async function probeUserInfoSearch(device: DeviceDiagnosticsRecord): Promise<Dev
   const config: Config = {
     deviceIp: device.ip_address || '',
     deviceUsername: device.device_username || '',
-    devicePassword: device.device_password_encrypted || '',
+    devicePassword: decryptDevicePassword(device.device_password_encrypted || ''),
     devicePort: 443,
     supabaseUrl: '',
     supabaseServiceRoleKey: '',
@@ -279,7 +280,7 @@ async function probeUserInfoCount(device: DeviceDiagnosticsRecord): Promise<numb
   const config: Config = {
     deviceIp: device.ip_address || '',
     deviceUsername: device.device_username || '',
-    devicePassword: device.device_password_encrypted || '',
+    devicePassword: decryptDevicePassword(device.device_password_encrypted || ''),
     devicePort: 443,
     supabaseUrl: '',
     supabaseServiceRoleKey: '',
@@ -343,7 +344,7 @@ export async function diagnoseDevicePersons(deviceId: string): Promise<DeviceDia
   const adapter = new HikvisionAdapter({
     ip: device.ip_address,
     username: device.device_username,
-    password: device.device_password_encrypted,
+    password: decryptDevicePassword(device.device_password_encrypted),
     port: 443,
   })
 

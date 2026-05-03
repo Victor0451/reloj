@@ -8,6 +8,7 @@ import type { Config } from "../config";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { HikvisionAdapter } from "../adapters/hikvision.adapter";
 import * as log from "../utils/logger";
+import { encryptDevicePassword } from "../crypto/device-credentials";
 
 export interface DeviceRow {
   id: string;
@@ -75,7 +76,7 @@ export async function registerDevice(
     status: isOnline ? "online" : "offline",
     last_seen_at: isOnline ? new Date().toISOString() : null,
     device_username: config.deviceUsername,
-    device_password_encrypted: config.devicePassword,
+    device_password_encrypted: encryptDevicePassword(config.devicePassword),
     sync_status: isOnline ? "synced" : "disconnected",
     updated_at: new Date().toISOString(),
   };
