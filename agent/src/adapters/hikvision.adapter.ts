@@ -496,6 +496,60 @@ export class HikvisionAdapter implements IDeviceAdapter {
             position += data.AcsEvent.numOfMatches;
             continue;
           }
+
+          // If response is "NO MATCH" with 0 events AND we applied time filters,
+          // retry without time filters to get events from the device's available history.
+          // This handles devices that return "NO MATCH" when query range has no events
+          // but still have older events available.
+          if (
+            allEvents.length === 0 &&
+            hasTimeFilter &&
+            data?.AcsEvent?.responseStatusStrg === "NO MATCH"
+          ) {
+            log.info("hikvision", "NO MATCH with time filters, retrying without time range to get available events");
+
+            // Make a second request without time filters
+            const noTimeFilterCond: Record<string, unknown> = {
+              searchID: `sync_${Date.now()}`,
+              searchResultPosition: 0,
+              maxResults: Math.min(maxResults, 200),
+              major: 5,
+              minor: 38,
+            };
+            const noTimeBody = JSON.stringify({ AcsEventCond: noTimeFilterCond });
+
+            const retryResponse = await digestRequest(
+              `${this.baseUrl}/ISAPI/AccessControl/AcsEvent?format=json`,
+              this.config.username,
+              this.config.password,
+              "POST",
+              noTimeBody,
+              "application/json",
+              this.config.rejectUnauthorized
+            );
+
+            log.info("hikvision", "Retry without time filters response", {
+              status: retryResponse.status,
+              bodyPreview: retryResponse.body.substring(0, 300),
+            });
+
+            if (retryResponse.status === 200) {
+              const retryData = JSON.parse(retryResponse.body);
+              const retryEvents = this.parseJsonEvents(retryData);
+              allEvents.push(...retryEvents);
+
+              log.info("hikvision", `Retry returned ${retryEvents.length} events (total: ${allEvents.length})`, {
+                responseStatus: retryData?.AcsEvent?.responseStatusStrg,
+                totalMatches: retryData?.AcsEvent?.totalMatches,
+              });
+
+              // If retry got events, we're done — don't paginate on fallback
+              if (allEvents.length > 0) {
+                return allEvents;
+              }
+            }
+          }
+
           break;
         }
 
