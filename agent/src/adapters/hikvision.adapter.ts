@@ -220,7 +220,7 @@ async function doDigestRequest(
     ? new https.Agent({ rejectUnauthorized: effectiveRejectUnauthorized, timeout: effectiveTimeoutMs })
     : undefined;
 
-  const client = new DigestFetch(username, password, { agent });
+  const client = new DigestFetch(username, password, { agent, algorithm: 'SHA-256' });
 
   const headers: Record<string, string> = { "Content-Type": effectiveContentType };
 
@@ -232,6 +232,10 @@ async function doDigestRequest(
   }
 
   // Parse the digest challenge from www-authenticate header
+  // NOTE: Hikvision ISAPI devices hardcode MD5 in WWW-Authenticate header (firmware constraint).
+  // We prefer SHA-256 per RFC 7616, but device falls back to MD5. This is a device limitation,
+  // not a library issue. digest-fetch supports: MD5, MD5-sess, SHA-256, SHA-256-sess, SHA-512-256, SHA-512-256-sess.
+  // See: https://datatracker.ietf.org/doc/html/rfc7616
   const wwwAuth = challengeResp.headers.get("www-authenticate");
   if (wwwAuth && wwwAuth.startsWith("Digest ") && !client.hasAuth) {
     client.parseAuth(wwwAuth);
