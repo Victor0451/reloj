@@ -72,6 +72,33 @@ function extractXmlText(xml: string, path: string[]): string | undefined {
   return undefined;
 }
 
+// ─── Nonce Replay Prevention ─────────────────────────────────────────────────
+
+const recentNonces = new Set<string>();
+const MAX_NONCE_ENTRIES = 1000;
+const PRUNE_BATCH_RATIO = 0.5;
+
+function isNonceValid(nonce: string): boolean {
+  if (recentNonces.has(nonce)) {
+    return false; // Replay detected
+  }
+
+  // Prune if at or above threshold
+  if (recentNonces.size >= MAX_NONCE_ENTRIES) {
+    const pruneCount = Math.floor(recentNonces.size * PRUNE_BATCH_RATIO);
+    const entries = Array.from(recentNonces);
+    entries.slice(0, pruneCount).forEach(n => recentNonces.delete(n));
+  }
+
+  recentNonces.add(nonce);
+  return true;
+}
+
+function extractNonceFromWwwAuth(wwwAuth: string): string | null {
+  const match = wwwAuth.match(/nonce="([^"]+)"/);
+  return match ? match[1] : null;
+}
+
 // ─── Digest Auth Client ───────────────────────────────────────────────────────
 
 const DEFAULT_TIMEOUT_MS = 30000;
@@ -208,6 +235,12 @@ async function doDigestRequest(
   const wwwAuth = challengeResp.headers.get("www-authenticate");
   if (wwwAuth && wwwAuth.startsWith("Digest ") && !client.hasAuth) {
     client.parseAuth(wwwAuth);
+
+    // Nonce replay prevention
+    const nonce = extractNonceFromWwwAuth(wwwAuth);
+    if (nonce && !isNonceValid(nonce)) {
+      return { status: 401, body: "Nonce replay detected" };
+    }
 
     // Make authenticated request with digest auth header
     const authOptions = client.addAuth(url, { method, body, headers });
