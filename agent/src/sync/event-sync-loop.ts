@@ -8,6 +8,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Person } from "../core/interfaces";
 import { AdapterManager } from "../core/adapter-manager";
 import * as log from "../utils/logger";
+import { EventDeduplicator, type DedupEventLike } from "./dedup";
 
 /**
  * Upsert a person from an access event.
@@ -85,7 +86,7 @@ export interface EventSyncOptions {
 
 interface SyncState {
   lastSyncTime: Date;
-  dedupKeys: Set<string>;
+  deduplicator: EventDeduplicator;
 }
 
 /**
@@ -127,7 +128,7 @@ export function startEventSyncLoop(
         if (!state) {
           state = {
             lastSyncTime: new Date(Date.now() - safetyWindowMs),
-            dedupKeys: new Set<string>(),
+            deduplicator: new EventDeduplicator(1000),
           };
           deviceStates.set(deviceId, state);
         }
@@ -157,17 +158,14 @@ export function startEventSyncLoop(
         let skipped = 0;
 
         for (const event of events) {
-          const dedupKey = `${event.employeeId}-${event.eventTime.getTime()}-${event.cardReaderNo || '0'}`;
-          if (state.dedupKeys.has(dedupKey)) {
+          const dedupEvent: DedupEventLike = {
+            employeeId: event.employeeId,
+            eventTime: event.eventTime,
+            cardReaderNo: event.cardReaderNo,
+          };
+          if (state.deduplicator.isDuplicate(dedupEvent)) {
             skipped++;
             continue;
-          }
-
-          state.dedupKeys.add(dedupKey);
-
-          if (state.dedupKeys.size > 1000) {
-            const keysArray = Array.from(state.dedupKeys);
-            state.dedupKeys = new Set(keysArray.slice(-500));
           }
 
           // Upsert person if identity was extracted from minor=38 event
@@ -288,7 +286,7 @@ export function startSingleDeviceEventSync(
   let isRunning = true;
   let lastSyncTime = new Date(Date.now() - 86400000); // 24 hours
   let latestSerialNo = 0;
-  const dedupKeys = new Set<string>();
+  const deduplicator = new EventDeduplicator(1000);
 
   async function syncEvents() {
     if (!isRunning) return;
@@ -370,20 +368,16 @@ export function startSingleDeviceEventSync(
       let inserted = 0;
       let skipped = 0;
 
-for (const event of events) {
-          const dedupKey = `${event.employeeId}-${event.eventTime.getTime()}-${event.cardReaderNo || '0'}`;
-          if (dedupKeys.has(dedupKey)) {
-            skipped++;
-            continue;
-          }
-
-          dedupKeys.add(dedupKey);
-
-          if (dedupKeys.size > 1000) {
-            const keysArray = Array.from(dedupKeys);
-            dedupKeys.clear();
-            keysArray.slice(-500).forEach((k) => dedupKeys.add(k));
-          }
+      for (const event of events) {
+        const dedupEvent: DedupEventLike = {
+          employeeId: event.employeeId,
+          eventTime: event.eventTime,
+          cardReaderNo: event.cardReaderNo,
+        };
+        if (deduplicator.isDuplicate(dedupEvent)) {
+          skipped++;
+          continue;
+        }
 
           // Upsert person if identity was extracted from minor=38 event
           let personId: string | null = null;

@@ -1,15 +1,22 @@
-export interface DedupKey {
+export interface DedupEventLike {
   employeeId: string;
-  eventTime: string;
-  major: number;
-  minor: number;
+  eventTime: Date | string;
+  cardReaderNo?: number | null;
 }
 
 /**
  * Create a composite deduplication key for an access event.
+ * Canonical format: employeeId|<unix-ms>|<cardReaderNo-or-0>
  */
-export function createDedupKey(event: DedupKey): string {
-  return `${event.employeeId}|${event.eventTime}|${event.major}|${event.minor}`;
+export function createDedupKey(event: DedupEventLike): string {
+  const employeeId = event.employeeId || "";
+  const eventTimeMs =
+    typeof event.eventTime === "string"
+      ? new Date(event.eventTime).getTime()
+      : event.eventTime.getTime();
+  const cardReaderNo = event.cardReaderNo ?? 0;
+
+  return `${employeeId}|${eventTimeMs}|${cardReaderNo}`;
 }
 
 /**
@@ -26,22 +33,22 @@ export class EventDeduplicator {
     this.maxSize = maxSize;
   }
 
-  isDuplicate(key: DedupKey): boolean {
-    const composite = createDedupKey(key);
+  isDuplicate(event: DedupEventLike): boolean {
+    const key = createDedupKey(event);
 
-    if (this.seenKeys.has(composite)) {
+    if (this.seenKeys.has(key)) {
       return true;
     }
 
-    this.seenKeys.add(composite);
+    this.seenKeys.add(key);
 
     // Prevent unbounded growth
     if (this.seenKeys.size > this.maxSize) {
       // Remove oldest entries (first 50%)
       const keys = Array.from(this.seenKeys);
       this.seenKeys.clear();
-      for (const key of keys.slice(keys.length / 2)) {
-        this.seenKeys.add(key);
+      for (const k of keys.slice(keys.length / 2)) {
+        this.seenKeys.add(k);
       }
     }
 
