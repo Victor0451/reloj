@@ -313,9 +313,6 @@ export function startSingleDeviceEventSync(
         })
         .eq("id", deviceId);
 
-      // Remove cached adapter to force fresh connection
-      adapterManager.removeAdapter(deviceId).catch(() => {});
-
       // Small delay after removing adapter
       await new Promise(resolve => setTimeout(resolve, 1000));
 
@@ -465,6 +462,9 @@ export function startSingleDeviceEventSync(
       log.error("eventSync", "Event sync failed", { deviceId, err: err as Error });
 
       if (isRealError) {
+        // Evict failed adapter so next cycle gets a fresh connection
+        await adapterManager.removeAdapter(deviceId).catch(() => {});
+
         await (supabase as any)
           .from("devices")
           .update({
