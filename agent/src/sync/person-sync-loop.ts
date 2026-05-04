@@ -372,26 +372,29 @@ export async function syncPersonsFromDevice(
       // Check if person already exists in DB
       const { data: existing } = await (supabase as any)
         .from("persons")
-        .select("id, name, employee_id")
+        .select("id, name, employee_id, device_employee_no")
         .eq("employee_id", employeeNo)
         .single();
 
       if (existing) {
-        // Update if name is different
-        if (existing.name !== person.name) {
-          await (supabase as any)
-            .from("persons")
-            .update({
-              name: person.name,
-              card_number: person.cardNumber || null,
-              status: "active",
-              updated_at: new Date().toISOString(),
-            })
-            .eq("id", existing.id);
+        // Always sync device_employee_no (unconditional), employee_id when changed, name conditionally
+        const deviceEmployeeNoInt = parseInt(employeeNo, 10) || null;
+        await (supabase as any)
+          .from("persons")
+          .update({
+            name: person.name,
+            card_number: person.cardNumber || null,
+            device_employee_no: deviceEmployeeNoInt,
+            employee_id: person.employeeNo && person.employeeNo !== String(existing.device_employee_no ?? '')
+              ? person.employeeNo
+              : existing.employee_id,
+            status: "active",
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", existing.id);
 
-          updated++;
-          log.info("personSync", `Updated person from device`, { employeeNo, name: person.name });
-        }
+        updated++;
+        log.info("personSync", `Updated person from device`, { employeeNo, name: person.name });
       } else {
         // Create new person from device data
         const { error } = await (supabase as any)
