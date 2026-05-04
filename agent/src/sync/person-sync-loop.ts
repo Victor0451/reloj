@@ -212,18 +212,58 @@ async function syncSinglePerson(
       return; // Don't update DB, don't assign card
     }
 
-    await (supabase as any)
-      .from("persons")
-      .update({
-        status: "active",
-        sync_attempts: 0,
-        sync_error: null,
-        device_employee_no: parseInt(finalEmployeeNo, 10) || null,
-        employee_id: finalEmployeeNo !== employeeNo ? finalEmployeeNo : person.employee_id,
-      })
-      .eq("id", person.id);
+    // Step 1: Update DB to device_committed (transactional boundary)
+    // If this fails, we must compensate (delete from device)
+    try {
+      await (supabase as any)
+        .from("persons")
+        .update({
+          status: "device_committed",
+          sync_attempts: 0,
+          sync_error: null,
+          device_employee_no: parseInt(finalEmployeeNo, 10) || null,
+          employee_id: finalEmployeeNo !== employeeNo ? finalEmployeeNo : person.employee_id,
+        })
+        .eq("id", person.id);
+    } catch (dbError) {
+      // DB update failed after device sync succeeded — COMPENSATE
+      log.error("personSync", `DB update failed for ${person.id} after device sync — compensating delete`, {
+        error: (dbError as Error).message,
+      });
 
-    // T10: Assign card if person has card_number and sync succeeded
+      // Compensating delete: remove person from device
+      try {
+        if ((adapter as any).deletePerson) {
+          await (adapter as any).deletePerson(finalEmployeeNo);
+          log.info("personSync", `Compensating delete succeeded for ${person.id}`);
+        }
+      } catch (compensateError) {
+        // Compensating delete also failed — move to dead-letter
+        log.error("personSync", `Compensating delete FAILED for ${person.id} — dead-letter`, {
+          error: (compensateError as Error).message,
+        });
+        await (supabase as any)
+          .from("persons")
+          .update({
+            status: "sync_dead_letter",
+            sync_error: `Compensating delete failed: ${(compensateError as Error).message}`,
+          })
+          .eq("id", person.id);
+        return;
+      }
+
+      // Compensating delete succeeded — mark as sync_failed for retry
+      await (supabase as any)
+        .from("persons")
+        .update({
+          status: "sync_failed",
+          sync_error: `Compensation succeeded, retry needed: ${(dbError as Error).message}`,
+        })
+        .eq("id", person.id);
+      return;
+    }
+
+    // Step 2: Assign card if person has card_number (best effort, failures logged)
     if (person.card_number && (adapter as any).assignCardToDevice) {
       const cardResult = await (adapter as any).assignCardToDevice(finalEmployeeNo, person.card_number);
       if (cardResult.success) {
@@ -237,6 +277,14 @@ async function syncSinglePerson(
         });
       }
     }
+
+    // Step 3: Final update to synced
+    await (supabase as any)
+      .from("persons")
+      .update({
+        status: "synced",
+      })
+      .eq("id", person.id);
 
     log.info("personSync", `Person ${person.id} synced successfully`);
   } else {
