@@ -1,6 +1,7 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { DoorAction } from '@/types/door.types'
 
 /**
@@ -9,6 +10,29 @@ import { DoorAction } from '@/types/door.types'
  */
 export async function sendDoorCommand(deviceSerial: string, action: DoorAction) {
   const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+
+  if (!user) {
+    return { success: false, error: 'No autenticado' }
+  }
+
+  // Use admin client to bypass RLS for profile lookup
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const admin: any = createAdminClient()
+
+  const { data: profile, error: profileError } = await admin
+    .from('profiles')
+    .select('role')
+    .eq('id', user.id)
+    .single() as any
+
+  if (profileError) {
+    return { success: false, error: `Error de perfil: ${profileError.message}` }
+  }
+
+  if (!profile || !['admin', 'technician'].includes(profile.role)) {
+    return { success: false, error: 'No tienes permisos para realizar esta acción' }
+  }
 
   // Casteamos para evitar el error de inferencia 'never'
   const { data, error } = await (supabase as any)
