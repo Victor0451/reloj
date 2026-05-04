@@ -9,8 +9,9 @@ export interface IsapiResponse<T = unknown> {
   rawXml?: string;
 }
 
-export interface IsapiError extends Error {
+export class IsapiError extends Error {
   statusCode?: number;
+  code?: string;
 }
 
 function buildBaseUrl(config: Config): string {
@@ -189,7 +190,7 @@ export async function isapiRequest<T = unknown>(
   );
 
   if (response.status >= 400) {
-    const err: IsapiError = new Error(
+    const err = new IsapiError(
       `ISAPI ${method} ${path} failed: ${response.status}`
     );
     err.statusCode = response.status;

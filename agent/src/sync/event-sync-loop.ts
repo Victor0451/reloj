@@ -9,6 +9,7 @@ import type { Person } from "../core/interfaces";
 import { AdapterManager } from "../core/adapter-manager";
 import * as log from "../utils/logger";
 import { EventDeduplicator, type DedupEventLike } from "./dedup";
+import { isRealError } from "./transient-error";
 
 /**
  * Upsert a person from an access event.
@@ -230,13 +231,10 @@ export function startEventSyncLoop(
           .eq("id", deviceId);
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : "Unknown error";
-        
-        // Only mark as error for real failures, not "not available"
-        const isRealError = !errorMessage.includes("not available");
-        
+
         log.error("eventSync", `Event sync failed for device ${deviceId}`, { err: err as Error });
 
-        if (isRealError) {
+        if (isRealError(err)) {
           await (supabase as any)
             .from("devices")
             .update({
@@ -455,13 +453,10 @@ export function startSingleDeviceEventSync(
         .eq("id", deviceId);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : "Unknown error";
-      
-      // Only mark as error for real failures
-      const isRealError = !errorMessage.includes("not available");
-      
+
       log.error("eventSync", "Event sync failed", { deviceId, err: err as Error });
 
-      if (isRealError) {
+      if (isRealError(err)) {
         // Evict failed adapter so next cycle gets a fresh connection
         await adapterManager.removeAdapter(deviceId).catch(() => {});
 
