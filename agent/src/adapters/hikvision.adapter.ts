@@ -1040,6 +1040,15 @@ export class HikvisionAdapter implements IDeviceAdapter {
         this.config.rejectUnauthorized
       );
 
+      if (response.status === 402) {
+        return {
+          success: false,
+          employeeNo: employeeNoToUse,
+          error: 'Device capacity reached',
+          code: 'deviceFull',
+        };
+      }
+
       if (response.status !== 200 && response.status !== 201) {
         return {
           success: false,

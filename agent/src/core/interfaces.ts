@@ -68,6 +68,7 @@ export interface SyncResult {
   success: boolean;
   employeeNo?: string;
   error?: string;
+  code?: string;
   warnings?: string[];
 }
 

@@ -108,7 +108,7 @@ async function syncPendingPersons(
 
   for (const person of pendingPersons as PendingPerson[]) {
     try {
-      await syncSinglePerson(adapter, supabase, person, existingEmployeeNos);
+      await syncSinglePerson(adapter, supabase, person, deviceId, existingEmployeeNos);
     } catch (err) {
       log.error("personSync", `Failed to sync person ${person.id}`, {
         err: err as Error,
@@ -122,6 +122,7 @@ async function syncSinglePerson(
   adapter: Awaited<ReturnType<AdapterManager["getAdapter"]>>,
   supabase: SupabaseClient,
   person: PendingPerson,
+  deviceId: string,
   existingEmployeeNos?: Set<string>
 ): Promise<void> {
   const hasEmployeeId = !!person.employee_id;
@@ -191,14 +192,30 @@ async function syncSinglePerson(
       }
     } else {
       // No employee_id — use createPersonOnDevice (JSON POST), device assigns employeeNo
-      const result = await adapter.createPersonOnDevice(personData);
-      success = result.success;
-      lastError = result.error;
-      assignedEmployeeNo = result.employeeNo ?? null;
+const result = await adapter.createPersonOnDevice(personData);
+        success = result.success;
+        lastError = result.error;
+        assignedEmployeeNo = result.employeeNo ?? null;
 
-      if (!success) {
-        log.warn("personSync", `Create failed for person ${person.id}: ${result.error}`);
-      }
+        if (!success) {
+          log.warn("personSync", `Create failed for person ${person.id}: ${result.error}`);
+        }
+
+        // Immediate dead-letter for deviceFull — don't waste retries
+        if (!success && result.code === 'deviceFull') {
+          await (supabase as any)
+            .from('persons')
+            .update({ status: 'sync_dead_letter', sync_error: 'Device capacity reached' })
+            .eq('id', person.id);
+
+          await (supabase as any)
+            .from('devices')
+            .update({ device_capacity_status: 'full' })
+            .eq('id', deviceId);
+
+          log.error("personSync", `Device capacity reached, dead-lettered person ${person.id}`);
+          return;
+        }
     }
   }
 
@@ -528,7 +545,7 @@ export function startSingleDevicePersonSync(
         );
 
         for (const person of pendingPersons as PendingPerson[]) {
-          await syncSinglePerson(adapter, supabase, person, existingEmployeeNos);
+await syncSinglePerson(adapter, supabase, person, deviceId, existingEmployeeNos);
         }
       }
 
