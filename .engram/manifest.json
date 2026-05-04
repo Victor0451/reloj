@@ -40,6 +40,14 @@
       "sessions": 10,
       "memories": 45,
       "prompts": 100
+    },
+    {
+      "id": "42922388",
+      "created_by": "vlongo",
+      "created_at": "2026-05-04T03:02:22Z",
+      "sessions": 10,
+      "memories": 106,
+      "prompts": 154
     }
   ]
 }
